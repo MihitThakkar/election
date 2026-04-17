@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Election Manager — PRD & TRD</title>
+<style>
+  :root {
+    --green: #16a34a; --green-light: #dcfce7; --green-mid: #22c55e;
+    --blue: #2563eb; --blue-light: #dbeafe; --blue-mid: #3b82f6;
+    --red: #dc2626; --red-light: #fee2e2;
+    --amber: #d97706; --amber-light: #fef3c7;
+    --purple: #7c3aed; --purple-light: #ede9fe;
+    --slate: #64748b; --slate-light: #f8fafc; --slate-dark: #1e293b;
+    --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: var(--text); font-size: 14px; line-height: 1.6; }
+
+  /* HEADER */
+  .header { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #0f4c75 100%); color: #fff; padding: 36px 48px 28px; }
+  .header-top { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
+  .header-badge { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 4px 12px; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .header p { color: rgba(255,255,255,0.65); font-size: 13px; margin-top: 6px; }
+  .header-meta { display: flex; gap: 24px; margin-top: 18px; }
+  .header-meta span { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .header-meta strong { color: rgba(255,255,255,0.9); }
+
+  /* TABS */
+  .tabs-bar { background: #fff; border-bottom: 2px solid var(--border); display: flex; padding: 0 48px; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .tab-btn { padding: 14px 20px; font-size: 13px; font-weight: 600; color: var(--muted); border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; white-space: nowrap; }
+  .tab-btn:hover { color: var(--blue); }
+  .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+  /* CONTENT */
+  .content { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* SECTION */
+  .section { background: #fff; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
+  .section-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .section-num { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .section-title { font-size: 15px; font-weight: 700; }
+  .section-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .section-body { padding: 20px; }
+
+  /* GRID */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+  /* CARDS */
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; }
+  .card-value { font-size: 22px; font-weight: 800; }
+  .card-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* STAT PILLS */
+  .stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .stat-pill { background: var(--slate-light); border: 1px solid var(--border); border-radius: 20px; padding: 5px 14px; font-size: 12px; font-weight: 600; color: var(--slate-dark); }
+  .stat-pill.green { background: var(--green-light); border-color: #86efac; color: var(--green); }
+  .stat-pill.blue { background: var(--blue-light); border-color: #93c5fd; color: var(--blue); }
+  .stat-pill.amber { background: var(--amber-light); border-color: #fcd34d; color: var(--amber); }
+  .stat-pill.red { background: var(--red-light); border-color: #fca5a5; color: var(--red); }
+  .stat-pill.purple { background: var(--purple-light); border-color: #c4b5fd; color: var(--purple); }
+
+  /* FEATURE LIST */
+  .feature-list { list-style: none; }
+  .feature-list li { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .feature-list li:last-child { border-bottom: none; }
+  .feat-icon { width: 18px; height: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; margin-top: 1px; }
+  .feat-icon.must { background: var(--red-light); color: var(--red); font-weight: 700; }
+  .feat-icon.should { background: var(--amber-light); color: var(--amber); font-weight: 700; }
+  .feat-icon.could { background: var(--blue-light); color: var(--blue); font-weight: 700; }
+  .feat-body strong { display: block; font-weight: 600; margin-bottom: 1px; }
+  .feat-body span { color: var(--muted); font-size: 12px; }
+
+  /* TABLE */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: var(--slate-light); padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--slate-light); }
+
+  /* BADGE */
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: var(--green-light); color: var(--green); }
+  .badge-blue { background: var(--blue-light); color: var(--blue); }
+  .badge-amber { background: var(--amber-light); color: var(--amber); }
+  .badge-red { background: var(--red-light); color: var(--red); }
+  .badge-purple { background: var(--purple-light); color: var(--purple); }
+  .badge-slate { background: #f1f5f9; color: var(--slate); }
+
+  /* CODE BLOCK */
+  .code-block { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 16px 18px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.7; overflow-x: auto; margin: 10px 0; }
+  .code-block .comment { color: #64748b; }
+  .code-block .key { color: #93c5fd; }
+  .code-block .val { color: #86efac; }
+  .code-block .str { color: #fcd34d; }
+
+  /* FLOW */
+  .flow { display: flex; align-items: flex-start; gap: 0; flex-wrap: wrap; }
+  .flow-step { display: flex; align-items: center; gap: 0; }
+  .flow-node { background: var(--blue-light); border: 1.5px solid #93c5fd; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 600; color: var(--blue); text-align: center; min-width: 90px; }
+  .flow-node.green { background: var(--green-light); border-color: #86efac; color: var(--green); }
+  .flow-node.amber { background: var(--amber-light); border-color: #fcd34d; color: var(--amber); }
+  .flow-node.red { background: var(--red-light); border-color: #fca5a5; color: var(--red); }
+  .flow-arrow { color: var(--slate); font-size: 16px; padding: 0 6px; }
+
+  /* CALLOUT */
+  .callout { border-radius: 8px; padding: 12px 16px; font-size: 13px; margin: 12px 0; display: flex; gap: 10px; }
+  .callout.info { background: var(--blue-light); border-left: 3px solid var(--blue); color: #1e40af; }
+  .callout.warn { background: var(--amber-light); border-left: 3px solid var(--amber); color: #92400e; }
+  .callout.success { background: var(--green-light); border-left: 3px solid var(--green); color: #14532d; }
+  .callout-icon { font-size: 16px; flex-shrink: 0; }
+
+  /* ARCH DIAGRAM */
+  .arch { background: #0f172a; border-radius: 10px; padding: 24px; margin: 10px 0; }
+  .arch-layer { border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+  .arch-layer-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 10px; }
+  .arch-boxes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .arch-box { border-radius: 6px; padding: 8px 12px; font-size: 12px; font-weight: 600; }
+  .arch-box.blue { background: #1d4ed8; color: #bfdbfe; }
+  .arch-box.green { background: #15803d; color: #bbf7d0; }
+  .arch-box.amber { background: #b45309; color: #fef3c7; }
+  .arch-box.slate { background: #334155; color: #cbd5e1; }
+  .arch-box.purple { background: #6d28d9; color: #ede9fe; }
+  .arch-connector { text-align: center; color: rgba(255,255,255,0.3); margin: -4px 0; font-size: 18px; }
+
+  /* USER STORY */
+  .story { border-left: 3px solid var(--blue); padding: 10px 14px; background: var(--blue-light); border-radius: 0 6px 6px 0; margin-bottom: 8px; font-size: 13px; }
+  .story strong { color: var(--blue); }
+
+  /* RISK TABLE */
+  .risk-high { color: var(--red); font-weight: 700; }
+  .risk-med { color: var(--amber); font-weight: 700; }
+  .risk-low { color: var(--green); font-weight: 700; }
+
+  /* RESPONSIVE */
+  @media (max-width: 700px) {
+    .header { padding: 24px 20px 18px; }
+    .tabs-bar { padding: 0 16px; overflow-x: auto; }
+    .content { padding: 16px 12px 48px; }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .header-meta { flex-wrap: wrap; gap: 12px; }
+  }
+
+  h4 { font-size: 13px; font-weight: 700; margin: 14px 0 8px; color: var(--slate-dark); }
+  p { font-size: 13px; color: var(--text); margin-bottom: 8px; }
+  .mt { margin-top: 12px; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <span class="header-badge">Internal Document</span>
+    <span class="header-badge">Confidential</span>
+  </div>
+  <h1>Election Campaign Field Operations Manager</h1>
+  <p>Product Requirements Document (PRD) &amp; Technical Requirements Document (TRD)</p>
+  <div class="header-meta">
+    <span><strong>Version:</strong> 1.0</span>
+    <span><strong>Date:</strong> April 2026</span>
+    <span><strong>Status:</strong> <span style="color:#86efac">Active Build</span></span>
+    <span><strong>Constituency:</strong> S20-155, Part 275</span>
+    <span><strong>Scale:</strong> 300+ Wards · 70,000+ Voters · 300+ Team Members</span>
+  </div>
+</div>
+
+<div class="tabs-bar">
+  <button class="tab-btn active" onclick="showTab('prd', this)">📋 PRD — Product Requirements</button>
+  <button class="tab-btn" onclick="showTab('trd', this)">⚙️ TRD — Technical Requirements</button>
+  <button class="tab-btn" onclick="showTab('data', this)">🗃️ Data Model</button>
+  <button class="tab-btn" onclick="showTab('api', this)">🔌 API Spec</button>
+  <button class="tab-btn" onclick="showTab('security', this)">🔒 Security</button>
+  <button class="tab-btn" onclick="showTab('risks', this)">⚠️ Risks & Milestones</button>
+</div>
+
+<div class="content">
+
+<!-- ===================== PRD ===================== -->
+<div id="tab-prd" class="tab-panel active">
+
+  <!-- 1. Executive Summary -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dbeafe;color:#2563eb">1</div>
+      <div>
+        <div class="section-title">Executive Summary</div>
+        <div class="section-sub">Problem, Vision, and Success Metrics</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <p>A local election candidate contesting Constituency <strong>S20-155</strong> (Part 275) faces an operational challenge: managing a field army of 300+ campaign workers covering 300+ wards with ~70,000 registered voters — all currently tracked on <strong>printed paper lists</strong>. This is error-prone, unscalable, and provides zero real-time visibility.</p>
+      <p>The <strong>Election Campaign Field Operations Manager</strong> is a digital platform that replaces this paper workflow entirely — enabling real-time voter tracking, hierarchical team management, and live campaign analytics accessible from any mobile device or desktop.</p>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <div><strong>Voting Mechanism Context:</strong> Eligible voters (age 18–35) must record a video on a government application stating their vote. Field workers visit each voter, explain the process, and record their status. This unique workflow is central to the system design.</div>
+      </div>
+
+      <div class="grid-4 mt">
+        <div class="card">
+          <div class="card-label">Wards / Areas</div>
+          <div class="card-value" style="color:var(--blue)">300+</div>
+          <div class="card-desc">Towns/wards to cover</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Total Voters</div>
+          <div class="card-value" style="color:var(--green)">70,000+</div>
+          <div class="card-desc">Registered in the roll</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Eligible Voters</div>
+          <div class="card-value" style="color:var(--amber)">18–35</div>
+          <div class="card-desc">Age bracket targeted</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Team Size</div>
+          <div class="card-value" style="color:var(--purple)">300+</div>
+          <div class="card-desc">Super Admins + Workers</div>
+        </div>
+      </div>
+
+      <h4>Vision Statement</h4>
+      <p>Enable every campaign worker to operate efficiently from their phone, with every voter interaction tracked in real time, giving campaign leadership complete visibility into ground-level progress at all times.</p>
+
+      <h4>Success Metrics (KPIs)</h4>
+      <table>
+        <tr><th>Metric</th><th>Target</th><th>Measurement</th></tr>
+        <tr><td>Voter coverage rate</td><td>100% of eligible voters visited</td><td>Pending count → 0</td></tr>
+        <tr><td>Vote conversion rate</td><td>&gt;60% of visited voters marked Done</td><td>Done / (Done + Refused)</td></tr>
+        <tr><td>Worker adoption</td><td>&gt;90% of workers active daily</td><td>Daily active users</td></tr>
+        <tr><td>Data entry accuracy</td><td>&lt;2% duplicate/error rate</td><td>Skipped rows on import</td></tr>
+        <tr><td>Admin response time</td><td>Dashboard loads &lt;3s</td><td>API response p95</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- 2. Stakeholders -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dcfce7;color:#16a34a">2</div>
+      <div>
+        <div class="section-title">Stakeholders & User Personas</div>
+        <div class="section-sub">Who uses this system and what they need</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="grid-2">
+        <div class="card" style="border-left:4px solid var(--purple)">
+          <div class="card-label" style="color:var(--purple)">Super Admin (Campaign Leader)</div>
+          <div style="font-size:13px;margin-top:8px;">
+            <strong>Profile:</strong> Senior campaign coordinators, up to 304 individuals<br><br>
+            <strong>Goals:</strong>
+            <ul style="margin:6px 0 0 16px;font-size:12px;color:var(--muted)">
+              <li>Full visibility into campaign progress across all wards</li>
+              <li>Assign and manage field teams efficiently</li>
+              <li>Identify problem areas and top performers instantly</li>
+              <li>Communicate with field workers at scale</li>
+            </ul>
+            <br>
+            <strong>Pain Points (current):</strong> No real-time data, manual phone calls for updates, no way to prevent duplicate work
+          </div>
+        </div>
+        <div class="card" style="border-left:4px solid var(--green)">
+          <div class="card-label" style="color:var(--green)">Field Worker (Ground Team)</div>
+          <div style="font-size:13px;margin-top:8px;">
+            <strong>Profile:</strong> Door-to-door campaigners, primarily mobile-only users<br><br>
+            <strong>Goals:</strong>
+            <ul style="margin:6px 0 0 16px;font-size:12px;color:var(--muted)">
+              <li>Know exactly which voters to visit today</li>
+              <li>Mark voter status quickly on the go</li>
+              <li>Avoid re-visiting already-covered voters</li>
+              <li>Receive instructions from campaign leadership</li>
+            </ul>
+            <br>
+            <strong>Pain Points (current):</strong> Paper lists get lost, no way to coordinate with co-workers, no credit tracking
+          </div>
+        </div>
+      </div>
+      <div class="card mt" style="border-left:4px solid var(--blue)">
+        <div class="card-label" style="color:var(--blue)">Sub-Worker (Junior Field Member)</div>
+        <div style="font-size:13px;margin-top:8px;">Works under a Field Worker. Same interface as Field Worker but their vote credits roll up to their parent worker's totals. Created by Field Workers or Super Admins.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Scope -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#fef3c7;color:#d97706">3</div>
+      <div>
+        <div class="section-title">Scope & Feature Prioritization</div>
+        <div class="section-sub">MoSCoW prioritization for all features</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="stat-row">
+        <span class="stat-pill red">M = Must Have</span>
+        <span class="stat-pill amber">S = Should Have</span>
+        <span class="stat-pill blue">C = Could Have</span>
+        <span class="stat-pill">W = Won't Have (v1)</span>
+      </div>
+      <ul class="feature-list">
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Phone + Password Authentication</strong><span>Secure login for all users; no OTP required for v1</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Role-Based Access Control (Super Admin / Field Worker)</strong><span>Each role sees only what they're authorized to see</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Voter List Management (Excel/CSV Upload)</strong><span>Import voter rolls, auto-filter 18–35 age bracket, detect duplicates</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Voter Status Tracking (Pending / Done / Refused)</strong><span>Real-time status update visible to all workers on shared list</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Worker Assignment to Voters & Areas</strong><span>Bulk assign, area-assign, and individual voter assignment</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Field Worker "My List" View</strong><span>Mobile-optimized personal voter list with one-tap status marking</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Super Admin Analytics Dashboard</strong><span>Stats cards, area/worker charts, today's activity, leaderboard</span></div></li>
+        <li><div class="feat-icon must">M</div><div class="feat-body"><strong>Team Hierarchy with Sub-Worker Support</strong><span>Recursive parent-child structure; vote credits roll up the tree</span></div></li>
+        <li><div class="feat-icon should">S</div><div class="feat-body"><strong>Global Voter Search</strong><span>Search by name, Voter ID, or phone; see assignment and status</span></div></li>
+        <li><div class="feat-icon should">S</div><div class="feat-body"><strong>Broadcast Notifications</strong><span>Send messages to all workers or a specific area; in-app inbox</span></div></li>
+        <li><div class="feat-icon should">S</div><div class="feat-body"><strong>Video Guide Section</strong><span>Upload/watch instructional videos for voter education</span></div></li>
+        <li><div class="feat-icon should">S</div><div class="feat-body"><strong>Activity Audit Log</strong><span>Track all status changes with user, timestamp, and voter details</span></div></li>
+        <li><div class="feat-icon could">C</div><div class="feat-body"><strong>PWA / Installable Mobile App</strong><span>Wrap as Progressive Web App for native-like experience</span></div></li>
+        <li><div class="feat-icon could">C</div><div class="feat-body"><strong>Electoral Roll PDF Import (OCR)</strong><span>Parse official scanned Hindi PDF voter rolls automatically</span></div></li>
+        <li><div class="feat-icon could">C</div><div class="feat-body"><strong>Offline Mode</strong><span>Queue status updates when no internet; sync on reconnect</span></div></li>
+        <li><div class="feat-icon" style="background:#f1f5f9;color:var(--slate)">W</div><div class="feat-body"><strong>OTP Verification</strong><span>Can be added in v2 post-prototype validation</span></div></li>
+        <li><div class="feat-icon" style="background:#f1f5f9;color:var(--slate)">W</div><div class="feat-body"><strong>Native Mobile App (iOS/Android)</strong><span>PWA covers the mobile need for v1</span></div></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 4. User Stories -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#ede9fe;color:#7c3aed">4</div>
+      <div>
+        <div class="section-title">User Stories</div>
+        <div class="section-sub">Key workflows described as user stories with acceptance criteria</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <h4>Super Admin Stories</h4>
+      <div class="story"><strong>US-A01:</strong> As a Super Admin, I want to upload an Excel file of voter data so that I can digitize the paper voter roll without manual entry.<br><small>AC: System accepts .xlsx/.xls/.csv; auto-detects Name/Age/VoterID columns; shows preview; imports with duplicate skipping; displays count of eligible (18–35) voters.</small></div>
+      <div class="story"><strong>US-A02:</strong> As a Super Admin, I want to assign groups of voters to specific workers so that each worker has a defined territory to cover.<br><small>AC: Can select multiple voters via checkbox; assign all at once to any worker; can also auto-assign all unassigned voters in an area to a chosen worker.</small></div>
+      <div class="story"><strong>US-A03:</strong> As a Super Admin, I want to see a real-time dashboard so that I can monitor campaign progress without calling individual workers.<br><small>AC: Dashboard shows total done/refused/pending across all areas; area-wise bar chart; worker leaderboard; today's activity feed; updates without full page reload.</small></div>
+      <div class="story"><strong>US-A04:</strong> As a Super Admin, I want to send broadcast notifications so that I can communicate instructions to all field workers instantly.<br><small>AC: Can send to all workers or filter by specific area; notification appears in worker's inbox; read/unread tracking per worker.</small></div>
+
+      <h4 class="mt">Field Worker Stories</h4>
+      <div class="story"><strong>US-W01:</strong> As a Field Worker, I want to see only my assigned voter list when I log in so that I know exactly who to visit without any confusion.<br><small>AC: Shows personal stats (total/done/refused/pending); displays voter cards with address; filter by status; no other worker's data visible.</small></div>
+      <div class="story"><strong>US-W02:</strong> As a Field Worker, I want to mark a voter as Done with one tap so that I can update the record quickly while standing at the voter's door.<br><small>AC: Green check button marks as Done; voter card turns green; status visible to all co-workers on shared list immediately; credited to my name.</small></div>
+      <div class="story"><strong>US-W03:</strong> As a Field Worker sharing a list with 2 other workers, I want to see when another worker marks a voter so that I don't waste time visiting already-covered voters.<br><small>AC: Within 30 seconds of another worker marking a voter, the change is reflected on my list without page refresh. Marked voter shows "by [Worker Name]".</small></div>
+      <div class="story"><strong>US-W04:</strong> As a Field Worker, I want to show a how-to video to the voter so they know how to record their vote correctly.<br><small>AC: Video Guide section in menu; videos play in full-screen modal; works on mobile without download.</small></div>
+    </div>
+  </div>
+
+  <!-- 5. Functional Requirements -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#fee2e2;color:#dc2626">5</div>
+      <div>
+        <div class="section-title">Functional Requirements</div>
+        <div class="section-sub">Detailed behavior specifications per module</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <h4>FR-01: Authentication</h4>
+      <table>
+        <tr><th>ID</th><th>Requirement</th><th>Priority</th></tr>
+        <tr><td>FR-01.1</td><td>Login via 10-digit phone number + password</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-01.2</td><td>JWT token issued on successful login; expires in 7 days</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-01.3</td><td>Auto-redirect to login page if token is expired (401 response)</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-01.4</td><td>Show/hide password toggle on login screen</td><td><span class="badge badge-amber">Should</span></td></tr>
+      </table>
+
+      <h4 class="mt">FR-02: Voter Data Management</h4>
+      <table>
+        <tr><th>ID</th><th>Requirement</th><th>Priority</th></tr>
+        <tr><td>FR-02.1</td><td>Accept .xlsx, .xls, .csv files for voter upload</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-02.2</td><td>Auto-map columns: Name, Age, VoterID, FatherName, Phone, Address, Gender</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-02.3</td><td>Filter and flag voters with age 18–35 as "eligible"</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-02.4</td><td>Skip duplicate voter IDs silently; report count of skipped rows</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-02.5</td><td>Show 10-row file preview before final import</td><td><span class="badge badge-amber">Should</span></td></tr>
+        <tr><td>FR-02.6</td><td>Provide downloadable sample Excel template</td><td><span class="badge badge-amber">Should</span></td></tr>
+      </table>
+
+      <h4 class="mt">FR-03: Voter Status Tracking</h4>
+      <table>
+        <tr><th>ID</th><th>Requirement</th><th>Priority</th></tr>
+        <tr><td>FR-03.1</td><td>Three statuses: Pending (white), Done (green), Refused (red)</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-03.2</td><td>Status change recorded with: marked_by (user), marked_at (timestamp)</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-03.3</td><td>First worker to mark a voter gets credit; others see "by [Name]"</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-03.4</td><td>Status updates visible to all workers on shared list within 30s</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-03.5</td><td>Workers can reset a voter to Pending (undo)</td><td><span class="badge badge-amber">Should</span></td></tr>
+      </table>
+
+      <h4 class="mt">FR-04: Dashboard & Analytics</h4>
+      <table>
+        <tr><th>ID</th><th>Requirement</th><th>Priority</th></tr>
+        <tr><td>FR-04.1</td><td>8 KPI cards: Total Voters, Eligible, Done, Refused, Pending, Areas, Workers, Completion %</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-04.2</td><td>Stacked bar chart: Done/Refused/Pending per area</td><td><span class="badge badge-red">Must</span></td></tr>
+        <tr><td>FR-04.3</td><td>Pie chart: overall status distribution</td><td><span class="badge badge-amber">Should</span></td></tr>
+        <tr><td>FR-04.4</td><td>Top worker leaderboard (ranked by votes collected today)</td><td><span class="badge badge-amber">Should</span></td></tr>
+        <tr><td>FR-04.5</td><td>Today's activity feed (who marked which voter, timestamps)</td><td><span class="badge badge-amber">Should</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- 6. Non-Functional Requirements -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dcfce7;color:#16a34a">6</div>
+      <div>
+        <div class="section-title">Non-Functional Requirements</div>
+        <div class="section-sub">Performance, reliability, and usability constraints</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="grid-2">
+        <div>
+          <h4>Performance</h4>
+          <ul class="feature-list">
+            <li><div class="feat-icon" style="background:#dbeafe;color:#2563eb">⚡</div><div class="feat-body"><strong>Page Load &lt; 3 seconds</strong><span>On 4G mobile connection</span></div></li>
+            <li><div class="feat-icon" style="background:#dbeafe;color:#2563eb">⚡</div><div class="feat-body"><strong>Voter List Pagination</strong><span>Max 30 voters per page; avoid loading 70K rows at once</span></div></li>
+            <li><div class="feat-icon" style="background:#dbeafe;color:#2563eb">⚡</div><div class="feat-body"><strong>Excel Import &lt; 30 seconds</strong><span>For files up to 10,000 rows</span></div></li>
+            <li><div class="feat-icon" style="background:#dbeafe;color:#2563eb">⚡</div><div class="feat-body"><strong>Status Sync &lt; 30 seconds</strong><span>Poll interval for shared list updates</span></div></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Usability</h4>
+          <ul class="feature-list">
+            <li><div class="feat-icon" style="background:#dcfce7;color:#16a34a">📱</div><div class="feat-body"><strong>Mobile-First Design</strong><span>All worker flows optimized for phone screens</span></div></li>
+            <li><div class="feat-icon" style="background:#dcfce7;color:#16a34a">📱</div><div class="feat-body"><strong>Large Touch Targets</strong><span>Done/Refused buttons minimum 44x44px</span></div></li>
+            <li><div class="feat-icon" style="background:#dcfce7;color:#16a34a">📱</div><div class="feat-body"><strong>Bilingual Ready</strong><span>UI in English; voter data supports Hindi text</span></div></li>
+            <li><div class="feat-icon" style="background:#dcfce7;color:#16a34a">📱</div><div class="feat-body"><strong>Zero Training Required</strong><span>Worker onboarding in &lt; 5 minutes</span></div></li>
+          </ul>
+        </div>
+      </div>
+      <div class="grid-2 mt">
+        <div>
+          <h4>Reliability</h4>
+          <ul class="feature-list">
+            <li><div class="feat-icon" style="background:#fef3c7;color:#d97706">🔄</div><div class="feat-body"><strong>99% Uptime</strong><span>During active campaign period (election day ± 7 days)</span></div></li>
+            <li><div class="feat-icon" style="background:#fef3c7;color:#d97706">🔄</div><div class="feat-body"><strong>Data Persistence</strong><span>No data loss on server restart (SQLite file persisted)</span></div></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Scalability</h4>
+          <ul class="feature-list">
+            <li><div class="feat-icon" style="background:#ede9fe;color:#7c3aed">📈</div><div class="feat-body"><strong>Concurrent Users</strong><span>Support 300+ simultaneous active workers</span></div></li>
+            <li><div class="feat-icon" style="background:#ede9fe;color:#7c3aed">📈</div><div class="feat-body"><strong>Migration Path</strong><span>SQLite → PostgreSQL for production scale</span></div></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===================== TRD ===================== -->
+<div id="tab-trd" class="tab-panel">
+
+  <!-- Tech Stack -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dbeafe;color:#2563eb">1</div>
+      <div>
+        <div class="section-title">Technology Stack</div>
+        <div class="section-sub">All libraries, frameworks, and versions</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="grid-2">
+        <div>
+          <h4>Frontend</h4>
+          <table>
+            <tr><th>Package</th><th>Version</th><th>Role</th></tr>
+            <tr><td><strong>React.js</strong></td><td><span class="badge badge-blue">18.3</span></td><td>UI framework (SPA)</td></tr>
+            <tr><td><strong>Vite</strong></td><td><span class="badge badge-blue">5.4</span></td><td>Build tool + dev server</td></tr>
+            <tr><td><strong>TailwindCSS</strong></td><td><span class="badge badge-blue">3.4</span></td><td>Utility CSS framework</td></tr>
+            <tr><td><strong>React Router DOM</strong></td><td><span class="badge badge-blue">6.26</span></td><td>Client-side routing</td></tr>
+            <tr><td><strong>Axios</strong></td><td><span class="badge badge-blue">1.7</span></td><td>HTTP client + interceptors</td></tr>
+            <tr><td><strong>Recharts</strong></td><td><span class="badge badge-blue">2.12</span></td><td>Charts (bar, pie)</td></tr>
+            <tr><td><strong>Lucide React</strong></td><td><span class="badge badge-blue">0.400</span></td><td>SVG icons</td></tr>
+            <tr><td><strong>XLSX (SheetJS)</strong></td><td><span class="badge badge-blue">0.18</span></td><td>Client-side Excel preview</td></tr>
+          </table>
+        </div>
+        <div>
+          <h4>Backend</h4>
+          <table>
+            <tr><th>Package</th><th>Version</th><th>Role</th></tr>
+            <tr><td><strong>Node.js</strong></td><td><span class="badge badge-green">24.x</span></td><td>Runtime environment</td></tr>
+            <tr><td><strong>Express.js</strong></td><td><span class="badge badge-green">4.21</span></td><td>REST API framework</td></tr>
+            <tr><td><strong>sql.js (SQLite)</strong></td><td><span class="badge badge-green">1.11</span></td><td>Database (WASM)</td></tr>
+            <tr><td><strong>jsonwebtoken</strong></td><td><span class="badge badge-green">9.0</span></td><td>JWT auth tokens</td></tr>
+            <tr><td><strong>bcryptjs</strong></td><td><span class="badge badge-green">2.4</span></td><td>Password hashing</td></tr>
+            <tr><td><strong>Multer</strong></td><td><span class="badge badge-green">1.4</span></td><td>File uploads</td></tr>
+            <tr><td><strong>XLSX (SheetJS)</strong></td><td><span class="badge badge-green">0.18</span></td><td>Server-side Excel parse</td></tr>
+            <tr><td><strong>CORS</strong></td><td><span class="badge badge-green">2.8</span></td><td>Cross-origin requests</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Architecture -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dcfce7;color:#16a34a">2</div>
+      <div>
+        <div class="section-title">System Architecture</div>
+        <div class="section-sub">Component layout, request flow, and design decisions</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="arch">
+        <div class="arch-layer">
+          <div class="arch-layer-label">Client Layer (Browser / PWA)</div>
+          <div class="arch-boxes">
+            <div class="arch-box blue">Login Page</div>
+            <div class="arch-box blue">Admin Dashboard</div>
+            <div class="arch-box blue">Manage Team</div>
+            <div class="arch-box blue">Manage Areas</div>
+            <div class="arch-box blue">Upload Voters</div>
+            <div class="arch-box blue">Voter List</div>
+            <div class="arch-box blue">My List (Worker)</div>
+            <div class="arch-box blue">Global Search</div>
+            <div class="arch-box blue">Notifications</div>
+            <div class="arch-box blue">Video Guide</div>
+          </div>
+        </div>
+        <div class="arch-connector">↕ HTTP/Axios (JWT in Authorization header)</div>
+        <div class="arch-layer">
+          <div class="arch-layer-label">API Server — Express.js (Port 4000)</div>
+          <div class="arch-boxes">
+            <div class="arch-box amber">JWT Middleware</div>
+            <div class="arch-box amber">RBAC Middleware</div>
+            <div class="arch-box green">/api/auth</div>
+            <div class="arch-box green">/api/users</div>
+            <div class="arch-box green">/api/areas</div>
+            <div class="arch-box green">/api/voters</div>
+            <div class="arch-box green">/api/dashboard</div>
+            <div class="arch-box green">/api/notifications</div>
+            <div class="arch-box green">/api/videos</div>
+          </div>
+        </div>
+        <div class="arch-connector">↕ sql.js (WASM SQLite)</div>
+        <div class="arch-layer">
+          <div class="arch-layer-label">Persistence Layer</div>
+          <div class="arch-boxes">
+            <div class="arch-box slate">users table</div>
+            <div class="arch-box slate">voters table</div>
+            <div class="arch-box slate">areas table</div>
+            <div class="arch-box slate">notifications</div>
+            <div class="arch-box slate">user_notifications</div>
+            <div class="arch-box slate">videos</div>
+            <div class="arch-box slate">activity_logs</div>
+            <div class="arch-box purple">election.db (file)</div>
+            <div class="arch-box purple">/uploads/videos/</div>
+          </div>
+        </div>
+      </div>
+
+      <h4>Key Design Decisions</h4>
+      <table>
+        <tr><th>Decision</th><th>Choice</th><th>Rationale</th></tr>
+        <tr><td>Database</td><td><span class="badge badge-green">SQLite (sql.js)</span></td><td>Zero config, single file, no native compilation. Upgrade path to PostgreSQL exists.</td></tr>
+        <tr><td>Auth strategy</td><td><span class="badge badge-blue">JWT (stateless)</span></td><td>No server-side session storage needed. Token in localStorage, injected via Axios interceptor.</td></tr>
+        <tr><td>Dev/Prod split</td><td><span class="badge badge-blue">Vite Proxy (dev) / Serve static (prod)</span></td><td>Backend serves built React app in prod (single URL/port). Vite proxies API in dev for HMR.</td></tr>
+        <tr><td>CSS framework</td><td><span class="badge badge-purple">TailwindCSS</span></td><td>Utility-first, smaller bundle, more customizable than Bootstrap, mobile-first by design.</td></tr>
+        <tr><td>File uploads</td><td><span class="badge badge-amber">Multer + disk storage</span></td><td>Videos stored on filesystem; metadata in SQLite. Simple, no cloud dependency for v1.</td></tr>
+        <tr><td>Real-time sync</td><td><span class="badge badge-slate">Polling (30s)</span></td><td>Simpler than WebSockets. Adequate for campaign use case. Can upgrade to SSE/WebSocket in v2.</td></tr>
+      </table>
+
+      <h4 class="mt">Project File Structure</h4>
+      <div class="code-block">
+<span class="comment">election-app/</span>
+├── <span class="key">backend/</span>
+│   ├── <span class="val">server.js</span>          <span class="comment"># Express entry, static file serving</span>
+│   ├── <span class="val">db.js</span>             <span class="comment"># sql.js init, schema, seed data</span>
+│   ├── middleware/
+│   │   └── <span class="val">auth.js</span>       <span class="comment"># JWT verify + RBAC role check</span>
+│   ├── routes/
+│   │   ├── <span class="val">auth.js</span>       <span class="comment"># POST /login, GET /me</span>
+│   │   ├── <span class="val">users.js</span>      <span class="comment"># CRUD users + hierarchy</span>
+│   │   ├── <span class="val">areas.js</span>      <span class="comment"># CRUD areas + stats</span>
+│   │   ├── <span class="val">voters.js</span>     <span class="comment"># CRUD voters + upload + assign + status</span>
+│   │   ├── <span class="val">dashboard.js</span>  <span class="comment"># Aggregation endpoints</span>
+│   │   ├── <span class="val">notifications.js</span> <span class="comment"># Send + read + mark-read</span>
+│   │   └── <span class="val">videos.js</span>     <span class="comment"># Upload + list + delete</span>
+│   └── uploads/videos/    <span class="comment"># Uploaded video files</span>
+│
+└── <span class="key">frontend/src/</span>
+    ├── <span class="val">App.jsx</span>           <span class="comment"># Route definitions</span>
+    ├── context/<span class="val">AuthContext.jsx</span>  <span class="comment"># Global auth state</span>
+    ├── utils/<span class="val">api.js</span>       <span class="comment"># Axios instance + 401 interceptor</span>
+    ├── components/
+    │   ├── <span class="val">Layout.jsx</span>    <span class="comment"># Sidebar + header + responsive</span>
+    │   └── <span class="val">ProtectedRoute.jsx</span> <span class="comment"># Role-based route guard</span>
+    └── pages/             <span class="comment"># One file per screen</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Request Flow -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#fef3c7;color:#d97706">3</div>
+      <div>
+        <div class="section-title">Request Lifecycle</div>
+        <div class="section-sub">How every API request flows through the system</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <h4>Authentication Flow</h4>
+      <div class="flow">
+        <div class="flow-step"><div class="flow-node">User enters phone + password</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">POST /api/auth/login</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">bcrypt.compare()</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node green">JWT issued (7d)</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">Stored in localStorage</div></div>
+      </div>
+
+      <h4 class="mt">Protected Request Flow</h4>
+      <div class="flow">
+        <div class="flow-step"><div class="flow-node">Axios request</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">JWT in header</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">verifyToken()</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">checkRole()</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node green">Route Handler</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">SQLite Query</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node green">JSON Response</div></div>
+      </div>
+
+      <h4 class="mt">Voter Status Update Flow</h4>
+      <div class="flow">
+        <div class="flow-step"><div class="flow-node">Worker taps ✓</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">PUT /voters/:id/status</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">Auth + RBAC</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">UPDATE voters SET status, marked_by, marked_at</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">INSERT activity_logs</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node green">200 OK</div></div>
+      </div>
+      <div class="callout info mt">
+        <span class="callout-icon">ℹ️</span>
+        <div>Other workers on the shared list pick up this change on their next 30-second poll cycle via GET /api/voters?assigned_to=me (which returns all voters visible to a worker, including shared list voters).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voter Import Pipeline -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#fee2e2;color:#dc2626">4</div>
+      <div>
+        <div class="section-title">Voter Data Import Pipeline</div>
+        <div class="section-sub">Excel/CSV → Database processing steps</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="flow" style="flex-wrap:wrap;gap:8px;">
+        <div class="flow-step"><div class="flow-node">Upload .xlsx/.csv</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">Multer (disk buffer)</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">XLSX.parse()</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">Column mapping</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node amber">Age filter (18–35)</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node">INSERT OR IGNORE</div><span class="flow-arrow">→</span></div>
+        <div class="flow-step"><div class="flow-node green">Import report</div></div>
+      </div>
+
+      <h4 class="mt">Supported Column Names (case-insensitive)</h4>
+      <table>
+        <tr><th>Field</th><th>Accepted Column Names</th><th>Required?</th></tr>
+        <tr><td>Voter Name</td><td>name, voter_name, full_name, नाम</td><td><span class="badge badge-red">Yes</span></td></tr>
+        <tr><td>Age</td><td>age, उम्र, आयु</td><td><span class="badge badge-red">Yes</span></td></tr>
+        <tr><td>Voter ID</td><td>voter_id, epic, voter_card_no</td><td><span class="badge badge-red">Yes</span></td></tr>
+        <tr><td>Father Name</td><td>father_name, father, guardian</td><td><span class="badge badge-amber">Optional</span></td></tr>
+        <tr><td>Phone</td><td>phone, mobile, contact</td><td><span class="badge badge-amber">Optional</span></td></tr>
+        <tr><td>Address</td><td>address, house, पता</td><td><span class="badge badge-amber">Optional</span></td></tr>
+        <tr><td>Gender</td><td>gender, sex, लिंग</td><td><span class="badge badge-amber">Optional</span></td></tr>
+      </table>
+
+      <div class="callout warn mt">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Electoral Roll PDFs:</strong> Official government PDFs (e.g. EROLLGEN format) are image-based scans in Hindi. They require OCR preprocessing before import. A future pipeline using Tesseract OCR (Hindi language pack) + custom parser is planned for v2.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===================== DATA MODEL ===================== -->
+<div id="tab-data" class="tab-panel">
+
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dbeafe;color:#2563eb">DB</div>
+      <div>
+        <div class="section-title">Database Schema</div>
+        <div class="section-sub">SQLite (sql.js) — 7 tables</div>
+      </div>
+    </div>
+    <div class="section-body">
+
+      <h4>users</h4>
+      <table>
+        <tr><th>Column</th><th>Type</th><th>Constraints</th><th>Description</th></tr>
+        <tr><td><strong>id</strong></td><td>INTEGER</td><td>PK, AUTOINCREMENT</td><td>Internal user ID</td></tr>
+        <tr><td>name</td><td>TEXT</td><td>NOT NULL</td><td>Full name</td></tr>
+        <tr><td>phone</td><td>TEXT</td><td>UNIQUE, NOT NULL</td><td>10-digit phone (login credential)</td></tr>
+        <tr><td>password</td><td>TEXT</td><td>NOT NULL</td><td>bcrypt hash (10 rounds)</td></tr>
+        <tr><td>role</td><td>TEXT</td><td>CHECK IN ('super_admin','field_worker')</td><td>Determines access level</td></tr>
+        <tr><td>parent_id</td><td>INTEGER</td><td>FK → users.id, NULL</td><td>Parent worker (for sub-workers)</td></tr>
+        <tr><td>area_id</td><td>INTEGER</td><td>FK → areas.id, NULL</td><td>Assigned area/ward</td></tr>
+        <tr><td>is_active</td><td>INTEGER</td><td>DEFAULT 1</td><td>1 = active, 0 = deactivated</td></tr>
+        <tr><td>created_at</td><td>DATETIME</td><td>DEFAULT CURRENT_TIMESTAMP</td><td>Account creation time</td></tr>
+      </table>
+
+      <h4 class="mt">voters</h4>
+      <table>
+        <tr><th>Column</th><th>Type</th><th>Constraints</th><th>Description</th></tr>
+        <tr><td><strong>id</strong></td><td>INTEGER</td><td>PK, AUTOINCREMENT</td><td>Internal voter ID</td></tr>
+        <tr><td>name</td><td>TEXT</td><td>NOT NULL</td><td>Voter's full name</td></tr>
+        <tr><td>age</td><td>INTEGER</td><td></td><td>Age at time of import</td></tr>
+        <tr><td>voter_id</td><td>TEXT</td><td>UNIQUE</td><td>Government EPIC number (dedup key)</td></tr>
+        <tr><td>father_name</td><td>TEXT</td><td></td><td>Father's / husband's name</td></tr>
+        <tr><td>phone</td><td>TEXT</td><td></td><td>Voter's phone number</td></tr>
+        <tr><td>address</td><td>TEXT</td><td></td><td>House number + locality</td></tr>
+        <tr><td>gender</td><td>TEXT</td><td>CHECK IN ('M','F',NULL)</td><td>Gender</td></tr>
+        <tr><td>area_id</td><td>INTEGER</td><td>FK → areas.id</td><td>Ward/area this voter belongs to</td></tr>
+        <tr><td>assigned_to</td><td>INTEGER</td><td>FK → users.id, NULL</td><td>Responsible field worker</td></tr>
+        <tr><td>status</td><td>TEXT</td><td>DEFAULT 'pending'</td><td>pending | done | refused</td></tr>
+        <tr><td>marked_by</td><td>INTEGER</td><td>FK → users.id, NULL</td><td>Worker who changed status</td></tr>
+        <tr><td>marked_at</td><td>DATETIME</td><td></td><td>Timestamp of status change</td></tr>
+      </table>
+
+      <div class="grid-2 mt">
+        <div>
+          <h4>areas</h4>
+          <table>
+            <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+            <tr><td><strong>id</strong></td><td>INTEGER PK</td><td>Auto</td></tr>
+            <tr><td>name</td><td>TEXT</td><td>Ward/town name</td></tr>
+            <tr><td>district</td><td>TEXT</td><td>District name</td></tr>
+          </table>
+
+          <h4 class="mt">notifications</h4>
+          <table>
+            <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+            <tr><td><strong>id</strong></td><td>INTEGER PK</td><td>Auto</td></tr>
+            <tr><td>title</td><td>TEXT</td><td>Notification title</td></tr>
+            <tr><td>message</td><td>TEXT</td><td>Body text</td></tr>
+            <tr><td>sent_by</td><td>INTEGER FK</td><td>Admin user ID</td></tr>
+            <tr><td>target_area_id</td><td>INTEGER FK</td><td>NULL = all workers</td></tr>
+            <tr><td>created_at</td><td>DATETIME</td><td>Send timestamp</td></tr>
+          </table>
+        </div>
+        <div>
+          <h4>user_notifications</h4>
+          <table>
+            <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+            <tr><td>user_id</td><td>INTEGER FK</td><td>Recipient worker</td></tr>
+            <tr><td>notification_id</td><td>INTEGER FK</td><td>Notification</td></tr>
+            <tr><td>is_read</td><td>INTEGER</td><td>0 = unread, 1 = read</td></tr>
+          </table>
+
+          <h4 class="mt">videos</h4>
+          <table>
+            <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+            <tr><td><strong>id</strong></td><td>INTEGER PK</td><td>Auto</td></tr>
+            <tr><td>title</td><td>TEXT</td><td>Video name</td></tr>
+            <tr><td>description</td><td>TEXT</td><td>Description</td></tr>
+            <tr><td>file_path</td><td>TEXT</td><td>Filesystem path</td></tr>
+            <tr><td>uploaded_by</td><td>INTEGER FK</td><td>Admin user ID</td></tr>
+          </table>
+
+          <h4 class="mt">activity_logs</h4>
+          <table>
+            <tr><th>Column</th><th>Notes</th></tr>
+            <tr><td>user_id FK</td><td>Who acted</td></tr>
+            <tr><td>action TEXT</td><td>VOTER_STATUS / UPLOAD_VOTERS / etc.</td></tr>
+            <tr><td>details TEXT</td><td>Human-readable description</td></tr>
+            <tr><td>created_at</td><td>Timestamp</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <h4 class="mt">Entity Relationship</h4>
+      <div class="code-block">
+<span class="comment">areas  ──< voters  >── users (assigned_to)</span>
+              <span class="comment">│                │</span>
+              <span class="comment">│                └── users (marked_by)</span>
+              <span class="comment">│</span>
+<span class="comment">areas  ──< users (area_id)</span>
+                <span class="comment">│</span>
+                <span class="comment">└── users (parent_id)  [recursive hierarchy]</span>
+
+<span class="comment">users  ──< activity_logs</span>
+<span class="comment">users  ──< user_notifications >── notifications</span>
+<span class="comment">users  ──< videos (uploaded_by)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== API SPEC ===================== -->
+<div id="tab-api" class="tab-panel">
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dcfce7;color:#16a34a">🔌</div>
+      <div>
+        <div class="section-title">API Specification</div>
+        <div class="section-sub">Base URL: /api — All endpoints require JWT except /auth/login</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <h4>Authentication</h4>
+      <table>
+        <tr><th>Method</th><th>Endpoint</th><th>Access</th><th>Description</th></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/auth/login</td><td><span class="badge badge-slate">Public</span></td><td>Login with phone + password → returns JWT token</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/auth/me</td><td><span class="badge badge-amber">Auth</span></td><td>Get current user profile + unread notification count</td></tr>
+      </table>
+
+      <h4 class="mt">Users</h4>
+      <table>
+        <tr><th>Method</th><th>Endpoint</th><th>Access</th><th>Description</th></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/users</td><td><span class="badge badge-amber">Auth</span></td><td>List users — filterable by role, area_id, parent_id</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/users/:id</td><td><span class="badge badge-amber">Auth</span></td><td>User detail with sub-workers and voter stats</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/users</td><td><span class="badge badge-purple">Admin</span></td><td>Create new user (admin or worker)</td></tr>
+        <tr><td><span class="badge badge-amber">PUT</span></td><td>/api/users/:id</td><td><span class="badge badge-amber">Auth</span></td><td>Update user details (admin: any; self: own record)</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/users/:id/add-sub-worker</td><td><span class="badge badge-amber">Auth</span></td><td>Create a sub-worker under a given worker</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/users/:id/hierarchy</td><td><span class="badge badge-amber">Auth</span></td><td>Recursive tree of all sub-workers under a user</td></tr>
+      </table>
+
+      <h4 class="mt">Areas</h4>
+      <table>
+        <tr><th>Method</th><th>Endpoint</th><th>Access</th><th>Description</th></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/areas</td><td><span class="badge badge-amber">Auth</span></td><td>All areas with voter counts and worker assignments</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/areas/:id</td><td><span class="badge badge-amber">Auth</span></td><td>Area detail — workers + per-worker voter stats</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/areas</td><td><span class="badge badge-purple">Admin</span></td><td>Create area</td></tr>
+        <tr><td><span class="badge badge-amber">PUT</span></td><td>/api/areas/:id</td><td><span class="badge badge-purple">Admin</span></td><td>Update area name/district</td></tr>
+        <tr><td><span class="badge badge-red">DELETE</span></td><td>/api/areas/:id</td><td><span class="badge badge-purple">Admin</span></td><td>Delete area (fails if voters assigned)</td></tr>
+      </table>
+
+      <h4 class="mt">Voters</h4>
+      <table>
+        <tr><th>Method</th><th>Endpoint</th><th>Access</th><th>Description</th></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/voters</td><td><span class="badge badge-amber">Auth</span></td><td>Paginated voter list — filters: area, status, worker, eligible</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/voters/search?q=</td><td><span class="badge badge-amber">Auth</span></td><td>LIKE search across name, voter_id, phone, father_name</td></tr>
+        <tr><td><span class="badge badge-amber">PUT</span></td><td>/api/voters/:id/status</td><td><span class="badge badge-amber">Auth</span></td><td>Update status to done/refused/pending; records marked_by + marked_at</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/voters/upload</td><td><span class="badge badge-purple">Admin</span></td><td>Multipart Excel/CSV upload → parse, filter, insert</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/voters/assign</td><td><span class="badge badge-purple">Admin</span></td><td>Bulk assign voter IDs to a worker</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/voters/assign-area</td><td><span class="badge badge-purple">Admin</span></td><td>Assign all unassigned voters in an area to a worker</td></tr>
+      </table>
+
+      <h4 class="mt">Dashboard</h4>
+      <table>
+        <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/dashboard/stats</td><td>Overall: total voters, eligible, done, refused, pending, completion %</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/dashboard/area-stats</td><td>Per-area breakdown — done/refused/pending counts</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/dashboard/worker-stats</td><td>Per-worker stats — votes collected, area</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/dashboard/today</td><td>Today's activity: votes done, refused, top workers, activity feed</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/dashboard/recent-activity</td><td>Last N activity log entries</td></tr>
+      </table>
+
+      <h4 class="mt">Notifications & Videos</h4>
+      <table>
+        <tr><th>Method</th><th>Endpoint</th><th>Access</th><th>Description</th></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/notifications</td><td><span class="badge badge-amber">Auth</span></td><td>Admin sees all sent; worker sees own</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/notifications</td><td><span class="badge badge-purple">Admin</span></td><td>Send to all or specific area workers</td></tr>
+        <tr><td><span class="badge badge-amber">PUT</span></td><td>/api/notifications/:id/read</td><td><span class="badge badge-amber">Auth</span></td><td>Mark single notification as read</td></tr>
+        <tr><td><span class="badge badge-amber">PUT</span></td><td>/api/notifications/read-all</td><td><span class="badge badge-amber">Auth</span></td><td>Mark all as read</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td>/api/videos</td><td><span class="badge badge-amber">Auth</span></td><td>List all guide videos</td></tr>
+        <tr><td><span class="badge badge-green">POST</span></td><td>/api/videos</td><td><span class="badge badge-amber">Auth</span></td><td>Upload video (MP4/WebM/MOV, max 200MB)</td></tr>
+        <tr><td><span class="badge badge-red">DELETE</span></td><td>/api/videos/:id</td><td><span class="badge badge-purple">Admin</span></td><td>Delete video</td></tr>
+      </table>
+
+      <h4 class="mt">Response Envelope</h4>
+      <div class="code-block">
+<span class="comment">// Success</span>
+{ <span class="key">"success"</span>: <span class="val">true</span>, <span class="key">"data"</span>: { ... } }
+
+<span class="comment">// Error</span>
+{ <span class="key">"success"</span>: <span class="val">false</span>, <span class="key">"error"</span>: <span class="str">"Human-readable message"</span> }
+
+<span class="comment">// Paginated list</span>
+{ <span class="key">"success"</span>: <span class="val">true</span>, <span class="key">"data"</span>: [...], <span class="key">"total"</span>: <span class="val">1200</span>, <span class="key">"page"</span>: <span class="val">1</span>, <span class="key">"limit"</span>: <span class="val">30</span> }
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SECURITY ===================== -->
+<div id="tab-security" class="tab-panel">
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#fee2e2;color:#dc2626">🔒</div>
+      <div>
+        <div class="section-title">Security Architecture</div>
+        <div class="section-sub">Authentication, authorization, data protection, and audit</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="grid-2">
+        <div>
+          <h4>Authentication</h4>
+          <ul class="feature-list">
+            <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>JWT Tokens (7-day expiry)</strong><span>Signed with server secret; required on all /api/* except /login</span></div></li>
+            <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>bcrypt Password Hashing</strong><span>Salt rounds = 10. Passwords never stored or logged in plaintext</span></div></li>
+            <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Auto Token Expiry Handling</strong><span>Axios 401 interceptor redirects to login automatically</span></div></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Authorization (RBAC)</h4>
+          <ul class="feature-list">
+            <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Role Middleware</strong><span>requireAdmin() middleware blocks field workers from admin routes</span></div></li>
+            <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Data Isolation</strong><span>Workers can only see voters assigned to them or their sub-workers</span></div></li>
+            <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Protected Routes (Frontend)</strong><span>ProtectedRoute.jsx prevents direct URL access to unauthorized pages</span></div></li>
+          </ul>
+        </div>
+      </div>
+
+      <h4 class="mt">Data Security</h4>
+      <ul class="feature-list">
+        <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>No Voter Data in URLs</strong><span>All sensitive data in request body (POST) or Authorization header; never in query string</span></div></li>
+        <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Parameterized SQL Queries</strong><span>All SQLite queries use parameters — prevents SQL injection</span></div></li>
+        <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Server-Side Validation</strong><span>All inputs validated on the server regardless of frontend checks</span></div></li>
+        <li><div class="feat-icon must">✓</div><div class="feat-body"><strong>Activity Audit Log</strong><span>Every voter status change, upload, and login logged with user ID + timestamp</span></div></li>
+        <li><div class="feat-icon should">!</div><div class="feat-body"><strong>CORS Restriction (v2)</strong><span>Currently permissive for dev. Should be locked to production domain before go-live</span></div></li>
+        <li><div class="feat-icon should">!</div><div class="feat-body"><strong>HTTPS Enforcement (v2)</strong><span>Requires SSL certificate in production. Use Nginx reverse proxy or localtunnel for testing</span></div></li>
+      </ul>
+
+      <h4 class="mt">Roles & Permissions Matrix</h4>
+      <table>
+        <tr><th>Action</th><th>Super Admin</th><th>Field Worker</th><th>Sub-Worker</th></tr>
+        <tr><td>View own voter list</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td>Mark voter status</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td>View all areas/workers</td><td>✅</td><td>❌</td><td>❌</td></tr>
+        <tr><td>Upload voter Excel</td><td>✅</td><td>❌</td><td>❌</td></tr>
+        <tr><td>Assign voters to workers</td><td>✅</td><td>❌</td><td>❌</td></tr>
+        <tr><td>Create/edit users</td><td>✅</td><td>Sub-workers only</td><td>❌</td></tr>
+        <tr><td>Send broadcast notifications</td><td>✅</td><td>❌</td><td>❌</td></tr>
+        <tr><td>Upload/delete guide videos</td><td>✅</td><td>Upload only</td><td>Upload only</td></tr>
+        <tr><td>View full dashboard</td><td>✅</td><td>Own stats only</td><td>Own stats only</td></tr>
+        <tr><td>Global voter search</td><td>✅</td><td>✅</td><td>✅</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== RISKS ===================== -->
+<div id="tab-risks" class="tab-panel">
+
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#fef3c7;color:#d97706">⚠️</div>
+      <div>
+        <div class="section-title">Risk Register</div>
+        <div class="section-sub">Identified risks with likelihood, impact, and mitigations</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <table>
+        <tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr>
+        <tr>
+          <td><strong>Electoral Roll PDF is image-based (Hindi OCR needed)</strong></td>
+          <td><span class="risk-high">HIGH</span></td>
+          <td><span class="risk-high">HIGH</span></td>
+          <td>Use Excel template workaround for v1; build OCR pipeline (Tesseract Hindi) in v2</td>
+        </tr>
+        <tr>
+          <td><strong>Poor mobile internet in field (rural wards)</strong></td>
+          <td><span class="risk-high">HIGH</span></td>
+          <td><span class="risk-med">MED</span></td>
+          <td>Minimize payload sizes; add offline queue + sync in v2; worker loads list at start of day</td>
+        </tr>
+        <tr>
+          <td><strong>Concurrent workers marking same voter simultaneously</strong></td>
+          <td><span class="risk-med">MED</span></td>
+          <td><span class="risk-low">LOW</span></td>
+          <td>First-write-wins via atomic SQL UPDATE; marked_by field shows who gets credit</td>
+        </tr>
+        <tr>
+          <td><strong>SQLite performance at 70,000 voters + 300 concurrent users</strong></td>
+          <td><span class="risk-med">MED</span></td>
+          <td><span class="risk-high">HIGH</span></td>
+          <td>Add DB indexes on area_id, assigned_to, status; paginate all list queries; migrate to PostgreSQL for production</td>
+        </tr>
+        <tr>
+          <td><strong>Worker phones not supporting PWA features</strong></td>
+          <td><span class="risk-low">LOW</span></td>
+          <td><span class="risk-low">LOW</span></td>
+          <td>App is fully functional as a browser website even without PWA install</td>
+        </tr>
+        <tr>
+          <td><strong>Voter data privacy / leak</strong></td>
+          <td><span class="risk-low">LOW</span></td>
+          <td><span class="risk-high">HIGH</span></td>
+          <td>RBAC enforced server-side; no data in URLs; HTTPS in production; data visible only to authorized users</td>
+        </tr>
+        <tr>
+          <td><strong>Field workers sharing login credentials</strong></td>
+          <td><span class="risk-med">MED</span></td>
+          <td><span class="risk-med">MED</span></td>
+          <td>Activity logs track every action with user ID; admin can deactivate accounts immediately</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num" style="background:#dcfce7;color:#16a34a">📅</div>
+      <div>
+        <div class="section-title">Milestones & Delivery Plan</div>
+        <div class="section-sub">Phased delivery roadmap</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <table>
+        <tr><th>Phase</th><th>Deliverables</th><th>Status</th></tr>
+        <tr>
+          <td><strong>Phase 1 — Core MVP</strong></td>
+          <td>Auth, voter upload (Excel), status tracking, field worker list view, basic admin dashboard</td>
+          <td><span class="badge badge-green">✅ Complete</span></td>
+        </tr>
+        <tr>
+          <td><strong>Phase 2 — Team & Collaboration</strong></td>
+          <td>Team hierarchy, shared lists, worker assignment, sub-worker vote rollup</td>
+          <td><span class="badge badge-green">✅ Complete</span></td>
+        </tr>
+        <tr>
+          <td><strong>Phase 3 — Analytics & Comms</strong></td>
+          <td>Full dashboard with charts, notifications system, global search, video guide</td>
+          <td><span class="badge badge-green">✅ Complete</span></td>
+        </tr>
+        <tr>
+          <td><strong>Phase 4 — Data Import</strong></td>
+          <td>Real electoral roll PDF → OCR pipeline, Hindi text extraction, auto-import</td>
+          <td><span class="badge badge-amber">🔄 Planned</span></td>
+        </tr>
+        <tr>
+          <td><strong>Phase 5 — Production Hardening</strong></td>
+          <td>PostgreSQL migration, HTTPS/CORS lockdown, offline mode, OTP login</td>
+          <td><span class="badge badge-slate">📋 Backlog</span></td>
+        </tr>
+      </table>
+
+      <h4 class="mt">How to Run Now</h4>
+      <div class="code-block">
+<span class="comment"># Install dependencies</span>
+cd election-app/backend && <span class="val">npm install</span>
+cd ../frontend && <span class="val">npm install</span> && <span class="val">npm run build</span>
+
+<span class="comment"># Start server (serves frontend + backend on one port)</span>
+cd ../backend && <span class="val">node server.js</span>
+<span class="comment"># → Open http://localhost:4000</span>
+
+<span class="comment"># Share with team (public tunnel)</span>
+<span class="val">npx localtunnel --port 4000</span>
+<span class="comment"># → Gets a public URL like https://xxx.loca.lt</span>
+
+<span class="comment"># Test credentials</span>
+<span class="key">Super Admin:</span> 9999999001 / <span class="str">admin123</span>
+<span class="key">Field Worker:</span> 8888888001 / <span class="str">worker123</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+
+<script>
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>
