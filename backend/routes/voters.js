@@ -8,6 +8,58 @@ const { db } = require('../db');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { VOTER_SELECT } = require('../helpers');
 
+// ── Devanagari ↔ Latin helpers ────────────────────────────────────────────────
+function isDevanagari(str) {
+  return /[\u0900-\u097F]/.test(str);
+}
+
+function devanagariToLatin(text) {
+  const VIRAMA = '\u094D';
+  const consonants = {
+    '\u0915':'k','\u0916':'kh','\u0917':'g','\u0918':'gh','\u0919':'ng',
+    '\u091A':'ch','\u091B':'chh','\u091C':'j','\u091D':'jh','\u091E':'ny',
+    '\u091F':'t','\u0920':'th','\u0921':'d','\u0922':'dh','\u0923':'n',
+    '\u0924':'t','\u0925':'th','\u0926':'d','\u0927':'dh','\u0928':'n',
+    '\u092A':'p','\u092B':'ph','\u092C':'b','\u092D':'bh','\u092E':'m',
+    '\u092F':'y','\u0930':'r','\u0932':'l','\u0935':'v',
+    '\u0936':'sh','\u0937':'sh','\u0938':'s','\u0939':'h',
+    '\u0933':'l','\u0929':'n','\u0931':'r',
+  };
+  const standalone = {
+    '\u0905':'a','\u0906':'aa','\u0907':'i','\u0908':'i',
+    '\u0909':'u','\u090A':'u','\u090F':'e','\u0910':'ai',
+    '\u0913':'o','\u0914':'au','\u090B':'ri',
+  };
+  const matras = {
+    '\u093E':'a','\u093F':'i','\u0940':'i','\u0941':'u','\u0942':'u',
+    '\u0947':'e','\u0948':'ai','\u094B':'o','\u094C':'au','\u0943':'ri',
+    '\u0902':'n','\u0903':'h','\u0901':'n',
+  };
+  const chars = [...text];
+  let out = '';
+  let i = 0;
+  while (i < chars.length) {
+    const ch = chars[i];
+    if (consonants[ch]) {
+      const next = chars[i + 1];
+      if (next === VIRAMA) {
+        out += consonants[ch]; i += 2;
+      } else if (next && matras[next]) {
+        out += consonants[ch] + matras[next]; i += 2;
+      } else {
+        // Inherent 'a' suppressed at word boundary (schwa deletion)
+        const wordEnd = !next || next === ' ' || next === '-';
+        out += consonants[ch] + (wordEnd ? '' : 'a'); i++;
+      }
+    } else if (standalone[ch]) {
+      out += standalone[ch]; i++;
+    } else {
+      out += ch; i++;
+    }
+  }
+  return out.toLowerCase();
+}
+
 const { execFile } = require('child_process');
 
 const uploadDir = path.join(__dirname, '../uploads/temp/');
@@ -85,18 +137,33 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/voters/search
-router.get('/search', authenticateToken, async (req, res, next) => {
+router.get('/search', async (req, res, next) => {
   try {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json({ success: true, data: [] });
 
     const s = `%${q}%`;
-    const voters = await db.query(
-      `${VOTER_SELECT}
-       WHERE v.name LIKE ? OR v.voter_id LIKE ? OR v.phone LIKE ? OR v.father_name LIKE ?
-       ORDER BY v.name ASC LIMIT 50`,
-      [s, s, s, s]
-    );
+    let voters;
+
+    if (isDevanagari(q)) {
+      // Hindi query: search name_hindi directly + transliterate for English name column
+      const latinQ = devanagariToLatin(q);
+      const ls = `%${latinQ}%`;
+      voters = await db.query(
+        `${VOTER_SELECT}
+         WHERE v.name_hindi LIKE ? OR v.name LIKE ? OR v.voter_id LIKE ? OR v.phone LIKE ? OR v.father_name LIKE ?
+         ORDER BY v.name ASC LIMIT 50`,
+        [s, ls, s, s, s]
+      );
+    } else {
+      // English/other query: search English name + Hindi name column
+      voters = await db.query(
+        `${VOTER_SELECT}
+         WHERE v.name LIKE ? OR v.name_hindi LIKE ? OR v.voter_id LIKE ? OR v.phone LIKE ? OR v.father_name LIKE ?
+         ORDER BY v.name ASC LIMIT 50`,
+        [s, s, s, s, s]
+      );
+    }
 
     res.json({ success: true, data: voters });
   } catch (err) {
@@ -210,9 +277,14 @@ router.post('/upload', authenticateToken, requireAdmin, upload.single('file'), a
         const gender     = ['M','MALE','पु'].includes(genderRaw) ? 'M'
                          : ['F','FEMALE','म'].includes(genderRaw) ? 'F' : null;
 
+        // If name is in Devanagari, store Hindi original and transliterate for English name
+        const rawName = String(name).trim();
+        const storedName      = isDevanagari(rawName) ? devanagariToLatin(rawName) : rawName;
+        const storedNameHindi = isDevanagari(rawName) ? rawName : null;
+
         const [result] = await conn.execute(
-          'INSERT IGNORE INTO voters (name, age, voter_id, father_name, phone, address, gender, area_id, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [String(name).trim(), age, voter_id, father_name, phone, address, gender, areaId, partNumber]
+          'INSERT IGNORE INTO voters (name, name_hindi, age, voter_id, father_name, phone, address, gender, area_id, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [storedName, storedNameHindi, age, voter_id, father_name, phone, address, gender, areaId, partNumber]
         );
         if (result.affectedRows > 0) {
           imported++;
