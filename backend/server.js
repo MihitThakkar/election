@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { initDatabase, seedDatabase } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -21,6 +22,7 @@ app.use('/api/voters', require('./routes/voters'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/videos', require('./routes/videos'));
+app.use('/api/parts', require('./routes/parts'));
 
 // Serve React frontend in production
 const frontendDist = path.join(__dirname, '../frontend/dist');
@@ -29,7 +31,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(frontendDist, 'index.html'));
 });
 
-// Global error handler — catches any error thrown/passed in routes
+// Global error handler
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error('[Error]', err.message);
@@ -37,11 +39,19 @@ app.use((err, req, res, next) => {
   res.status(status).json({ success: false, error: err.message || 'Internal server error' });
 });
 
-const isDev = process.env.NODE_ENV !== 'production';
-app.listen(PORT, () => {
-  console.log(`\n Election Manager running at http://localhost:${PORT}`);
-  console.log(`  API: http://localhost:${PORT}/api`);
-  if (isDev) {
-    console.log('\n  Dev credentials — see README.md for details\n');
-  }
+async function start() {
+  await initDatabase();
+  await seedDatabase();
+
+  app.listen(PORT, () => {
+    console.log(`\n Election Manager running at http://localhost:${PORT}`);
+    console.log(`  API: http://localhost:${PORT}/api`);
+    console.log(`  Database: MySQL (${process.env.MYSQL_HOST || 'localhost'})`);
+    console.log('\n  Login: 9999999001 / admin123\n');
+  });
+}
+
+start().catch(err => {
+  console.error('Failed to start:', err);
+  process.exit(1);
 });

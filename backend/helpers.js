@@ -1,20 +1,21 @@
-const db = require('./db');
+const { db } = require('./db');
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
-function getUnreadCount(userId) {
-  const row = db.prepare(
-    'SELECT COUNT(*) as count FROM user_notifications WHERE user_id = ? AND is_read = 0'
-  ).get(userId);
+async function getUnreadCount(userId) {
+  const row = await db.get(
+    'SELECT COUNT(*) as count FROM user_notifications WHERE user_id = ? AND is_read = 0',
+    [userId]
+  );
   return row?.count || 0;
 }
 
 // ── User helpers ──────────────────────────────────────────────────────────────
-function phoneExists(phone, excludeId = null) {
+async function phoneExists(phone, excludeId = null) {
   const query = excludeId
     ? 'SELECT id FROM users WHERE phone = ? AND id != ?'
     : 'SELECT id FROM users WHERE phone = ?';
   const params = excludeId ? [phone, excludeId] : [phone];
-  return !!db.prepare(query).get(...params);
+  return !!(await db.get(query, params));
 }
 
 // ── Voter query helpers ───────────────────────────────────────────────────────

@@ -40,7 +40,38 @@ export default function VoterList() {
   const [selected, setSelected] = useState([]);
   const [showAssign, setShowAssign] = useState(false);
 
+  // Part / category filter state
+  const [partsData, setPartsData]     = useState([]);
+  const [partName, setPartName]       = useState('');
+  const [partNumber, setPartNumber]   = useState('');
+
   const setFilter = (k, v) => { setFilters(f => ({ ...f, [k]: v })); setPage(1); setSelected([]); };
+
+  // Derived: part_numbers for the currently selected partName
+  const selectedPartEntry = partsData.find(p => p.part_name === partName);
+  const partNumbers = selectedPartEntry ? selectedPartEntry.part_numbers : [];
+  const showPartNumberDropdown = partNumbers.length > 1;
+
+  const handlePartNameChange = (value) => {
+    setPartName(value);
+    setPartNumber('');
+    setPage(1);
+    setSelected([]);
+
+    // If only 1 part_number for this part_name, auto-select it
+    if (value) {
+      const entry = partsData.find(p => p.part_name === value);
+      if (entry && entry.part_numbers.length === 1) {
+        setPartNumber(String(entry.part_numbers[0]));
+      }
+    }
+  };
+
+  const handlePartNumberChange = (value) => {
+    setPartNumber(value);
+    setPage(1);
+    setSelected([]);
+  };
 
   const fetchVoters = useCallback(async () => {
     setLoading(true);
@@ -49,15 +80,23 @@ export default function VoterList() {
     if (filters.status)     params.status      = filters.status;
     if (filters.assigned_to) params.assigned_to = filters.assigned_to;
     if (filters.eligible)   params.eligible    = true;
+    if (partName)           params.part_name   = partName;
+    if (partNumber)         params.part_number = partNumber;
     const res = await api.get('/voters', { params });
     setVoters(res.data.data); setTotal(res.data.total); setPages(res.data.pages);
     setLoading(false);
-  }, [filters, page]);
+  }, [filters, page, partName, partNumber]);
 
   useEffect(() => { fetchVoters(); }, [fetchVoters]);
   useEffect(() => {
-    Promise.all([api.get('/areas'), api.get('/users?role=field_worker')]).then(([a, u]) => {
-      setAreas(a.data.data); setWorkers(u.data.data);
+    Promise.all([
+      api.get('/areas'),
+      api.get('/users?role=field_worker'),
+      api.get('/parts'),
+    ]).then(([a, u, p]) => {
+      setAreas(a.data.data);
+      setWorkers(u.data.data);
+      setPartsData(p.data.data || []);
     });
   }, []);
 
@@ -69,7 +108,15 @@ export default function VoterList() {
     setSelected([]); setShowAssign(false); fetchVoters();
   };
 
-  const hasFilters = filters.area_id || filters.status || filters.assigned_to || filters.eligible;
+  const hasFilters = filters.area_id || filters.status || filters.assigned_to || filters.eligible || partName;
+
+  const clearAllFilters = () => {
+    setFilters({ area_id: '', status: '', assigned_to: '', eligible: false });
+    setPartName('');
+    setPartNumber('');
+    setPage(1);
+    setSelected([]);
+  };
 
   return (
     <div className="space-y-5">
@@ -92,7 +139,25 @@ export default function VoterList() {
           <span className="card-header-title" style={{ color: 'var(--text-3)', fontWeight: 600 }}>Filters</span>
         </div>
         <div className="p-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {/* Part / Village dropdown */}
+          <select className="input text-sm" value={partName} onChange={e => handlePartNameChange(e.target.value)}>
+            <option value="">All Parts / Villages</option>
+            {partsData.map(p => (
+              <option key={p.part_name} value={p.part_name}>
+                {p.part_name} ({p.count})
+              </option>
+            ))}
+          </select>
+          {/* Part Number dropdown - only when selected part has multiple numbers */}
+          {showPartNumberDropdown && (
+            <select className="input text-sm" value={partNumber} onChange={e => handlePartNumberChange(e.target.value)}>
+              <option value="">All Part Numbers</option>
+              {partNumbers.map(num => (
+                <option key={num} value={String(num)}>{num}</option>
+              ))}
+            </select>
+          )}
           <select className="input text-sm" value={filters.area_id} onChange={e => setFilter('area_id', e.target.value)}>
             <option value="">All Areas</option>
             {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -109,13 +174,13 @@ export default function VoterList() {
             style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
             <input type="checkbox" checked={filters.eligible}
               onChange={e => setFilter('eligible', e.target.checked)} className="w-4 h-4 accent-black" />
-            <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>Eligible only (18–35)</span>
+            <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>Eligible only (18-35)</span>
           </label>
         </div>
           {hasFilters && (
-            <button onClick={() => { setFilters({ area_id:'',status:'',assigned_to:'',eligible:false }); setPage(1); }}
+            <button onClick={clearAllFilters}
               className="text-xs mt-2 transition-opacity hover:opacity-60" style={{ color: 'var(--text-2)' }}>
-              Clear all filters ×
+              Clear all filters x
             </button>
           )}
         </div>

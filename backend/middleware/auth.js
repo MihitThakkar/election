@@ -1,9 +1,9 @@
 const jwt = require('jsonwebtoken');
-const db = require('../db');
+const { db } = require('../db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'election-manager-secret-key-2026';
 
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -13,7 +13,10 @@ function authenticateToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT id, name, phone, role, area_id, parent_id, is_active FROM users WHERE id = ?').get(decoded.userId);
+    const user = await db.get(
+      'SELECT id, name, phone, role, area_id, parent_id, is_active FROM users WHERE id = ?',
+      [decoded.userId]
+    );
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'User not found' });
@@ -25,7 +28,10 @@ function authenticateToken(req, res, next) {
     req.user = user;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    }
+    next(err);
   }
 }
 
