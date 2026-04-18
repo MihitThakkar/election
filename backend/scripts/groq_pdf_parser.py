@@ -629,7 +629,11 @@ def main():
         return
 
     # Init Groq
-    groq_key = os.environ.get('GROQ_API_KEY', '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')
+    groq_key = os.environ.get('GROQ_API_KEY')
+    if not groq_key:
+        print("Error: GROQ_API_KEY environment variable is required.", file=sys.stderr)
+        print("  Set it in .env or export GROQ_API_KEY=gsk_...", file=sys.stderr)
+        sys.exit(1)
     groq_ext = GroqExtractor(groq_key)
 
     # Init Google Vision (optional)
