@@ -1,80 +1,138 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Filter, UserCheck, ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { Filter, UserCheck, ChevronLeft, ChevronRight, Users, X, Shield, User } from 'lucide-react';
 import api from '../utils/api';
 import { STATUS_CONFIG, isEligible } from '../utils/helpers';
-import Modal from '../components/Modal';
 import { TableSpinner } from '../components/Spinner';
 
 const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker' };
 
-function AssignModal({ voterIds, teamMembers, onAssign, onClose }) {
-  const [assignTo, setAssignTo] = useState('');
+function AssignPanel({ count, teamMembers, onAssign, onClose }) {
+  const [assignTo, setAssignTo] = useState(null);
   const [saving, setSaving]     = useState(false);
-  const handleAssign = async () => {
-    if (!assignTo) return;
-    setSaving(true); await onAssign(voterIds, assignTo); setSaving(false);
-  };
 
-  const teamLeads = teamMembers.filter(m => m.role === 'team_lead');
+  const teamLeads   = teamMembers.filter(m => m.role === 'team_lead');
   const fieldWorkers = teamMembers.filter(m => m.role === 'field_worker');
 
-  return (
-    <Modal title={`Assign ${voterIds.length} Voter${voterIds.length > 1 ? 's' : ''}`} onClose={onClose}>
-      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
-        Select a team lead or field worker to assign the selected voters to:
-      </p>
-      <select className="input mb-4" value={assignTo} onChange={e => setAssignTo(e.target.value)}>
-        <option value="">— Select team member —</option>
-        {teamLeads.length > 0 && (
-          <optgroup label="Team Leads">
-            {teamLeads.map(w => (
-              <option key={w.id} value={w.id}>
-                {w.name} — {w.part_name || 'No village'}
-              </option>
-            ))}
-          </optgroup>
-        )}
-        {fieldWorkers.length > 0 && (
-          <optgroup label="Field Workers">
-            {fieldWorkers.map(w => (
-              <option key={w.id} value={w.id}>
-                {w.name} — {w.part_name || 'No village'}{w.part_number ? ` (Part ${w.part_number})` : ''}
-              </option>
-            ))}
-          </optgroup>
-        )}
-      </select>
+  const handleAssign = async () => {
+    if (!assignTo) return;
+    setSaving(true);
+    try { await onAssign(assignTo); } finally { setSaving(false); }
+  };
 
-      {assignTo && (
-        <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
-          {(() => {
-            const member = teamMembers.find(m => m.id === parseInt(assignTo));
-            if (!member) return null;
-            return (
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-                  style={{ background: 'var(--border)', color: 'var(--text)' }}>
-                  {member.name[0]}
-                </div>
-                <div>
-                  <div className="font-semibold" style={{ color: 'var(--text)' }}>{member.name}</div>
-                  <div className="text-xs" style={{ color: 'var(--text-3)' }}>
-                    {roleLabels[member.role]} · {member.part_name || 'No village'}{member.part_number ? ` · Part ${member.part_number}` : ''}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+  const MemberCard = ({ member, isSelected }) => (
+    <button
+      onClick={() => setAssignTo(member.id)}
+      className="w-full text-left px-4 py-3 rounded-xl transition-all duration-150"
+      style={{
+        background: isSelected ? 'var(--accent)' : 'var(--bg)',
+        color: isSelected ? '#fff' : 'var(--text)',
+        border: isSelected ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
+        transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+        boxShadow: isSelected ? '0 4px 14px rgba(79,70,229,.25)' : 'none',
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+          style={{
+            background: isSelected ? 'rgba(255,255,255,.2)' : 'var(--border)',
+            color: isSelected ? '#fff' : 'var(--text)',
+          }}>
+          {member.name[0]?.toUpperCase()}
         </div>
-      )}
-
-      <div className="flex gap-3">
-        <button onClick={handleAssign} disabled={!assignTo || saving} className="btn-primary flex-1 justify-center">
-          {saving ? 'Assigning...' : `Assign ${voterIds.length} voter${voterIds.length > 1 ? 's' : ''}`}
-        </button>
-        <button onClick={onClose} className="btn-secondary">Cancel</button>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm truncate">{member.name}</div>
+          <div className="text-xs mt-0.5 truncate" style={{ opacity: isSelected ? 0.8 : 0.55 }}>
+            {member.part_name || 'No village'}{member.part_number ? ` · Part ${member.part_number}` : ''}
+          </div>
+        </div>
+        <div className="flex-shrink-0">
+          {member.role === 'team_lead'
+            ? <Shield size={14} style={{ opacity: isSelected ? 0.9 : 0.35 }} />
+            : <User size={14} style={{ opacity: isSelected ? 0.9 : 0.35 }} />
+          }
+        </div>
       </div>
-    </Modal>
+    </button>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(4px)', animation: 'fadeIn .2s ease' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div
+        className="w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden"
+        style={{
+          background: 'var(--surface)',
+          borderRadius: '16px',
+          boxShadow: 'var(--shadow-lg)',
+          animation: 'scaleIn .22s ease',
+        }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5"
+          style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <h2 className="text-base font-bold" style={{ color: 'var(--text)' }}>
+              Assign {count} Voter{count > 1 ? 's' : ''}
+            </h2>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+              Select a team member below
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all hover:bg-black hover:text-white"
+            style={{ color: 'var(--text-3)' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Member List */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {teamLeads.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[.12em] mb-2 flex items-center gap-1.5"
+                style={{ color: 'var(--text-3)' }}>
+                <Shield size={11} /> Team Leads
+              </div>
+              <div className="space-y-2">
+                {teamLeads.map(m => <MemberCard key={m.id} member={m} isSelected={assignTo === m.id} />)}
+              </div>
+            </div>
+          )}
+
+          {fieldWorkers.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[.12em] mb-2 flex items-center gap-1.5"
+                style={{ color: 'var(--text-3)' }}>
+                <User size={11} /> Field Workers
+              </div>
+              <div className="space-y-2">
+                {fieldWorkers.map(m => <MemberCard key={m.id} member={m} isSelected={assignTo === m.id} />)}
+              </div>
+            </div>
+          )}
+
+          {teamLeads.length === 0 && fieldWorkers.length === 0 && (
+            <div className="py-8 text-center" style={{ color: 'var(--text-3)' }}>
+              <Users size={28} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No team members found.</p>
+              <p className="text-xs mt-1">Create team leads or field workers first.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 flex gap-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <button onClick={handleAssign} disabled={!assignTo || saving}
+            className="btn-primary flex-1 justify-center py-2.5">
+            {saving
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Assigning...</>
+              : <><UserCheck size={15} /> Assign{assignTo ? '' : ' — select a member'}</>}
+          </button>
+          <button onClick={onClose} className="btn-secondary px-5">Cancel</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -335,9 +393,13 @@ export default function VoterList() {
         )}
       </div>
 
-      {showAssign && (
-        <AssignModal voterIds={selected} teamMembers={teamMembers} onAssign={handleBulkAssign} onClose={() => setShowAssign(false)} />
-      )}
+      {/* Assign Panel */}
+      {showAssign && <AssignPanel
+        count={selected.length}
+        teamMembers={teamMembers}
+        onAssign={async (workerId) => { await handleBulkAssign(selected, workerId); }}
+        onClose={() => setShowAssign(false)}
+      />}
     </div>
   );
 }
