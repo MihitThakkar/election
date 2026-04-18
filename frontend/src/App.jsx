@@ -22,7 +22,7 @@ function RootRedirect() {
 
 function HomePage() {
   const { user } = useAuth();
-  if (['field_worker', 'sub_worker'].includes(user?.role)) {
+  if (['field_worker'].includes(user?.role)) {
     return <MyList />;
   }
   return <Dashboard />;
@@ -41,7 +41,7 @@ export default function App() {
             </ProtectedRoute>
           } />
           <Route path="/team" element={
-            <ProtectedRoute roles={['super_admin', 'team_lead', 'field_worker']}>
+            <ProtectedRoute roles={['super_admin', 'team_lead']}>
               <Layout><ManageTeam /></Layout>
             </ProtectedRoute>
           } />

@@ -106,35 +106,6 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Test credentials */}
-          <div className="mt-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
-            <p className="text-xs font-semibold uppercase tracking-widest mb-3"
-              style={{ color: 'var(--text-3)' }}>Dev Credentials</p>
-            <div className="space-y-2 anim-list">
-              {[
-                { label: 'Super Admin',  phone: '9999999001', pass: 'admin123'  },
-                { label: 'Team Lead',    phone: '9999999002', pass: 'lead123'   },
-                { label: 'Field Worker', phone: '8888888001', pass: 'worker123' },
-                { label: 'Sub Worker',   phone: '8888888002', pass: 'sub123'    },
-              ].map(c => (
-                <button key={c.label} onClick={() => fill(c.phone, c.pass)}
-                  className="w-full text-left px-4 py-3 rounded-lg transition-all duration-150
-                             hover:-translate-y-0.5 group"
-                  style={{ background: 'var(--bg)', border: '1.5px solid var(--border)' }}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-bold" style={{ color: 'var(--text)' }}>{c.label}</div>
-                      <div className="text-xs mt-0.5 font-mono" style={{ color: 'var(--text-2)' }}>
-                        {c.phone} · {c.pass}
-                      </div>
-                    </div>
-                    <span className="text-xs transition-transform group-hover:translate-x-1"
-                      style={{ color: 'var(--text-3)' }}>→</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <p className="text-center text-xs mt-6" style={{ color: 'rgba(148,163,184,.55)' }}>

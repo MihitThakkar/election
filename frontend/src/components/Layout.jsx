@@ -21,10 +21,6 @@ const navByRole = {
   ],
   field_worker: [
     { to: '/my-list',     icon: List,            label: 'My Voter List' },
-    { to: '/team',        icon: Users,           label: 'My Sub-Workers' },
-  ],
-  sub_worker: [
-    { to: '/my-list',     icon: List,            label: 'My Voter List' },
   ],
 };
 const sharedNav = [
@@ -73,7 +69,7 @@ function NavItem({ item, active, unreadCount }) {
   );
 }
 
-const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker', sub_worker: 'Sub Worker' };
+const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker' };
 
 function Sidebar({ user, navItems, unreadCount, location, onLogout }) {
   return (

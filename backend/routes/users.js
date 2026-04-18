@@ -70,7 +70,7 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
 });
 
 // POST /api/users
-router.post('/', authenticateToken, requireRole('super_admin', 'team_lead', 'field_worker'), async (req, res, next) => {
+router.post('/', authenticateToken, requireRole('super_admin', 'team_lead'), async (req, res, next) => {
   try {
     const { name, phone, password, role, area_id, parent_id, part_name, part_number } = req.body;
     if (!name || !phone || !password || !role) {

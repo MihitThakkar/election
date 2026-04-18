@@ -43,7 +43,7 @@ router.get('/stats', authenticateToken, async (req, res, next) => {
     // Count workers in scope
     let workerCount;
     if (req.user.role === 'super_admin') {
-      workerCount = await db.get("SELECT COUNT(*) as count FROM users WHERE role IN ('field_worker','sub_worker') AND is_active = 1");
+      workerCount = await db.get("SELECT COUNT(*) as count FROM users WHERE role = 'field_worker' AND is_active = 1");
     } else {
       workerCount = await db.get("SELECT COUNT(*) as count FROM users WHERE parent_id = ? AND is_active = 1", [req.user.id]);
     }
@@ -103,7 +103,7 @@ router.get('/worker-stats', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
 
-    let roleFilter = "u.role IN ('field_worker','sub_worker')";
+    let roleFilter = "u.role = 'field_worker'";
     const params = [];
     if (req.user.role === 'team_lead') {
       // Show only workers under this team lead

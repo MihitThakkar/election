@@ -5,22 +5,72 @@ import { STATUS_CONFIG, isEligible } from '../utils/helpers';
 import Modal from '../components/Modal';
 import { TableSpinner } from '../components/Spinner';
 
-function AssignModal({ voterIds, workers, onAssign, onClose }) {
-  const [workerId, setWorkerId] = useState('');
+const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker' };
+
+function AssignModal({ voterIds, teamMembers, onAssign, onClose }) {
+  const [assignTo, setAssignTo] = useState('');
   const [saving, setSaving]     = useState(false);
   const handleAssign = async () => {
-    if (!workerId) return;
-    setSaving(true); await onAssign(voterIds, workerId); setSaving(false);
+    if (!assignTo) return;
+    setSaving(true); await onAssign(voterIds, assignTo); setSaving(false);
   };
+
+  const teamLeads = teamMembers.filter(m => m.role === 'team_lead');
+  const fieldWorkers = teamMembers.filter(m => m.role === 'field_worker');
+
   return (
     <Modal title={`Assign ${voterIds.length} Voter${voterIds.length > 1 ? 's' : ''}`} onClose={onClose}>
-      <select className="input mb-4" value={workerId} onChange={e => setWorkerId(e.target.value)}>
-        <option value="">— Select a worker —</option>
-        {workers.map(w => <option key={w.id} value={w.id}>{w.name} ({w.area_name || 'No area'})</option>)}
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Select a team lead or field worker to assign the selected voters to:
+      </p>
+      <select className="input mb-4" value={assignTo} onChange={e => setAssignTo(e.target.value)}>
+        <option value="">— Select team member —</option>
+        {teamLeads.length > 0 && (
+          <optgroup label="Team Leads">
+            {teamLeads.map(w => (
+              <option key={w.id} value={w.id}>
+                {w.name} — {w.part_name || 'No village'}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {fieldWorkers.length > 0 && (
+          <optgroup label="Field Workers">
+            {fieldWorkers.map(w => (
+              <option key={w.id} value={w.id}>
+                {w.name} — {w.part_name || 'No village'}{w.part_number ? ` (Part ${w.part_number})` : ''}
+              </option>
+            ))}
+          </optgroup>
+        )}
       </select>
+
+      {assignTo && (
+        <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+          {(() => {
+            const member = teamMembers.find(m => m.id === parseInt(assignTo));
+            if (!member) return null;
+            return (
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                  style={{ background: 'var(--border)', color: 'var(--text)' }}>
+                  {member.name[0]}
+                </div>
+                <div>
+                  <div className="font-semibold" style={{ color: 'var(--text)' }}>{member.name}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                    {roleLabels[member.role]} · {member.part_name || 'No village'}{member.part_number ? ` · Part ${member.part_number}` : ''}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       <div className="flex gap-3">
-        <button onClick={handleAssign} disabled={!workerId || saving} className="btn-primary flex-1 justify-center">
-          {saving ? 'Assigning...' : 'Assign'}
+        <button onClick={handleAssign} disabled={!assignTo || saving} className="btn-primary flex-1 justify-center">
+          {saving ? 'Assigning...' : `Assign ${voterIds.length} voter${voterIds.length > 1 ? 's' : ''}`}
         </button>
         <button onClick={onClose} className="btn-secondary">Cancel</button>
       </div>
@@ -33,7 +83,7 @@ export default function VoterList() {
   const [total, setTotal]     = useState(0);
   const [pages, setPages]     = useState(1);
   const [loading, setLoading] = useState(true);
-  const [workers, setWorkers] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [filters, setFilters] = useState({ status: '', assigned_to: '', eligible: false });
   const [page, setPage]       = useState(1);
   const [selected, setSelected] = useState([]);
@@ -87,13 +137,15 @@ export default function VoterList() {
 
   useEffect(() => { fetchVoters(); }, [fetchVoters]);
   useEffect(() => {
-    Promise.all([
-      api.get('/users?role=field_worker'),
-      api.get('/parts'),
-    ]).then(([u, p]) => {
-      setWorkers(u.data.data);
+    // Fetch team members and parts separately to avoid one failure blocking both
+    api.get('/users').then(u => {
+      const members = (u.data.data || []).filter(m => ['team_lead', 'field_worker'].includes(m.role));
+      setTeamMembers(members);
+    }).catch(err => console.error('Failed to load users:', err));
+
+    api.get('/parts').then(p => {
       setPartsData(p.data.data || []);
-    });
+    }).catch(err => console.error('Failed to load parts:', err));
   }, []);
 
   const toggleSelect = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
@@ -159,8 +211,8 @@ export default function VoterList() {
             {Object.entries(STATUS_CONFIG).map(([val, cfg]) => <option key={val} value={val}>{cfg.label}</option>)}
           </select>
           <select className="input text-sm" value={filters.assigned_to} onChange={e => setFilter('assigned_to', e.target.value)}>
-            <option value="">All Workers</option>
-            {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            <option value="">All Team Members</option>
+            {teamMembers.map(w => <option key={w.id} value={w.id}>{w.name} ({roleLabels[w.role]})</option>)}
           </select>
           <label className="flex items-center gap-2 cursor-pointer px-3 py-2.5 rounded-lg border transition-all hover:border-black"
             style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
@@ -284,7 +336,7 @@ export default function VoterList() {
       </div>
 
       {showAssign && (
-        <AssignModal voterIds={selected} workers={workers} onAssign={handleBulkAssign} onClose={() => setShowAssign(false)} />
+        <AssignModal voterIds={selected} teamMembers={teamMembers} onAssign={handleBulkAssign} onClose={() => setShowAssign(false)} />
       )}
     </div>
   );

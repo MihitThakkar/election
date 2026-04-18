@@ -115,13 +115,6 @@ router.get('/', authenticateToken, async (req, res, next) => {
         where.push('v.assigned_to = ?');
         params.push(req.user.id);
       }
-    } else if (req.user.role === 'sub_worker') {
-      if (req.user.part_number) {
-        where.push('v.part_number = ?');
-        params.push(req.user.part_number);
-      } else {
-        where.push('1=0');
-      }
     }
     // super_admin sees everything - apply optional filters
     if (req.user.role === 'super_admin') {
@@ -166,7 +159,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/voters/search
-router.get('/search', async (req, res, next) => {
+router.get('/search', authenticateToken, async (req, res, next) => {
   try {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json({ success: true, data: [] });
@@ -197,13 +190,6 @@ router.get('/search', async (req, res, next) => {
       } else {
         where.push('v.assigned_to = ?');
         params.push(req.user.id);
-      }
-    } else if (req.user.role === 'sub_worker') {
-      if (req.user.part_number) {
-        where.push('v.part_number = ?');
-        params.push(req.user.part_number);
-      } else {
-        where.push('1=0');
       }
     }
 
@@ -253,14 +239,6 @@ router.put('/:id/status', authenticateToken, async (req, res, next) => {
           return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
         }
       } else if (req.user.area_id && voter.area_id !== req.user.area_id) {
-        return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
-      }
-    } else if (req.user.role === 'sub_worker') {
-      if (req.user.part_number) {
-        if (voter.part_number !== req.user.part_number) {
-          return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
-        }
-      } else {
         return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
       }
     }
