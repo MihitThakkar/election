@@ -77,11 +77,11 @@ export default function Dashboard() {
     { name: 'Pending', value: stats.pending },
   ] : [];
 
-  const barData = areaStats.slice(0, 8).map(a => ({
-    name:    a.name.replace('Ward ', 'W').split(' - ')[0],
-    Done:    a.done,
-    Refused: a.refused,
-    Pending: a.pending,
+  const barData = areaStats.filter(a => a.total_voters > 0).slice(0, 8).map(a => ({
+    name:    (a.part_name || a.name || '').substring(0, 12),
+    Done:    parseInt(a.done) || 0,
+    Refused: parseInt(a.refused) || 0,
+    Pending: parseInt(a.pending) || 0,
   }));
 
   return (
@@ -196,7 +196,7 @@ export default function Dashboard() {
                     <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>{w.votes_done}</span>
                   </div>
                   <div className="text-xs truncate mt-0.5" style={{ color: 'var(--text-3)' }}>
-                    {w.area_name || 'No area'}
+                    {w.part_name || w.area_name || 'No village'}{w.part_number ? ` · Part ${w.part_number}` : ''}
                   </div>
                 </div>
               </div>

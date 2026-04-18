@@ -16,7 +16,8 @@ export default function Login() {
     e.preventDefault(); setError(''); setLoading(true);
     try {
       const user = await login(phone, password);
-      navigate(user.role === 'super_admin' ? '/dashboard' : '/my-list', { replace: true });
+      const dest = ['super_admin', 'team_lead'].includes(user.role) ? '/' : '/my-list';
+      navigate(dest, { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally { setLoading(false); }
@@ -112,7 +113,9 @@ export default function Login() {
             <div className="space-y-2 anim-list">
               {[
                 { label: 'Super Admin',  phone: '9999999001', pass: 'admin123'  },
+                { label: 'Team Lead',    phone: '9999999002', pass: 'lead123'   },
                 { label: 'Field Worker', phone: '8888888001', pass: 'worker123' },
+                { label: 'Sub Worker',   phone: '8888888002', pass: 'sub123'    },
               ].map(c => (
                 <button key={c.label} onClick={() => fill(c.phone, c.pass)}
                   className="w-full text-left px-4 py-3 rounded-lg transition-all duration-150

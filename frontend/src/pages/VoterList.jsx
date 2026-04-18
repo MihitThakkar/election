@@ -33,9 +33,8 @@ export default function VoterList() {
   const [total, setTotal]     = useState(0);
   const [pages, setPages]     = useState(1);
   const [loading, setLoading] = useState(true);
-  const [areas, setAreas]     = useState([]);
   const [workers, setWorkers] = useState([]);
-  const [filters, setFilters] = useState({ area_id: '', status: '', assigned_to: '', eligible: false });
+  const [filters, setFilters] = useState({ status: '', assigned_to: '', eligible: false });
   const [page, setPage]       = useState(1);
   const [selected, setSelected] = useState([]);
   const [showAssign, setShowAssign] = useState(false);
@@ -76,7 +75,6 @@ export default function VoterList() {
   const fetchVoters = useCallback(async () => {
     setLoading(true);
     const params = { page, limit: 30 };
-    if (filters.area_id)    params.area_id     = filters.area_id;
     if (filters.status)     params.status      = filters.status;
     if (filters.assigned_to) params.assigned_to = filters.assigned_to;
     if (filters.eligible)   params.eligible    = true;
@@ -90,11 +88,9 @@ export default function VoterList() {
   useEffect(() => { fetchVoters(); }, [fetchVoters]);
   useEffect(() => {
     Promise.all([
-      api.get('/areas'),
       api.get('/users?role=field_worker'),
       api.get('/parts'),
-    ]).then(([a, u, p]) => {
-      setAreas(a.data.data);
+    ]).then(([u, p]) => {
       setWorkers(u.data.data);
       setPartsData(p.data.data || []);
     });
@@ -108,10 +104,10 @@ export default function VoterList() {
     setSelected([]); setShowAssign(false); fetchVoters();
   };
 
-  const hasFilters = filters.area_id || filters.status || filters.assigned_to || filters.eligible || partName;
+  const hasFilters = filters.status || filters.assigned_to || filters.eligible || partName;
 
   const clearAllFilters = () => {
-    setFilters({ area_id: '', status: '', assigned_to: '', eligible: false });
+    setFilters({ status: '', assigned_to: '', eligible: false });
     setPartName('');
     setPartNumber('');
     setPage(1);
@@ -158,10 +154,6 @@ export default function VoterList() {
               ))}
             </select>
           )}
-          <select className="input text-sm" value={filters.area_id} onChange={e => setFilter('area_id', e.target.value)}>
-            <option value="">All Areas</option>
-            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
           <select className="input text-sm" value={filters.status} onChange={e => setFilter('status', e.target.value)}>
             <option value="">All Statuses</option>
             {Object.entries(STATUS_CONFIG).map(([val, cfg]) => <option key={val} value={val}>{cfg.label}</option>)}
@@ -216,7 +208,7 @@ export default function VoterList() {
                 <th>Voter</th>
                 <th>Age / Gender</th>
                 <th className="hidden md:table-cell">Voter ID</th>
-                <th className="hidden lg:table-cell">Area</th>
+                <th className="hidden lg:table-cell">Village</th>
                 <th className="hidden lg:table-cell">Assigned To</th>
                 <th>Status</th>
               </tr>
@@ -247,7 +239,9 @@ export default function VoterList() {
                         <td className="hidden md:table-cell">
                           <span className="voter-chip">{v.voter_id || '—'}</span>
                         </td>
-                        <td className="hidden lg:table-cell text-sm" style={{ color: 'var(--text-2)' }}>{v.area_name || '—'}</td>
+                        <td className="hidden lg:table-cell text-sm" style={{ color: 'var(--text-2)' }}>
+                          {v.part_number ? <span className="badge-slate">Part {v.part_number}</span> : (v.area_name || '—')}
+                        </td>
                         <td className="hidden lg:table-cell">
                           {v.assigned_worker_name
                             ? <span className="text-sm" style={{ color: 'var(--text-2)' }}>{v.assigned_worker_name}</span>

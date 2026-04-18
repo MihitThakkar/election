@@ -17,7 +17,15 @@ import VideoGuide from './pages/VideoGuide';
 function RootRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.role === 'super_admin' ? '/dashboard' : '/my-list'} replace />;
+  return <Navigate to={['super_admin', 'team_lead'].includes(user.role) ? '/' : '/my-list'} replace />;
+}
+
+function HomePage() {
+  const { user } = useAuth();
+  if (['field_worker', 'sub_worker'].includes(user?.role)) {
+    return <MyList />;
+  }
+  return <Dashboard />;
 }
 
 export default function App() {
@@ -26,30 +34,29 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<RootRedirect />} />
 
-          <Route path="/dashboard" element={
-            <ProtectedRoute adminOnly>
-              <Layout><Dashboard /></Layout>
+          <Route path="/" element={
+            <ProtectedRoute>
+              <Layout><HomePage /></Layout>
             </ProtectedRoute>
           } />
-          <Route path="/manage-team" element={
-            <ProtectedRoute adminOnly>
+          <Route path="/team" element={
+            <ProtectedRoute roles={['super_admin', 'team_lead', 'field_worker']}>
               <Layout><ManageTeam /></Layout>
             </ProtectedRoute>
           } />
-          <Route path="/manage-areas" element={
-            <ProtectedRoute adminOnly>
+          <Route path="/areas" element={
+            <ProtectedRoute roles={['super_admin']}>
               <Layout><ManageAreas /></Layout>
             </ProtectedRoute>
           } />
-          <Route path="/upload-voters" element={
-            <ProtectedRoute adminOnly>
+          <Route path="/upload" element={
+            <ProtectedRoute roles={['super_admin']}>
               <Layout><UploadVoters /></Layout>
             </ProtectedRoute>
           } />
-          <Route path="/voter-list" element={
-            <ProtectedRoute adminOnly>
+          <Route path="/voters" element={
+            <ProtectedRoute roles={['super_admin', 'team_lead']}>
               <Layout><VoterList /></Layout>
             </ProtectedRoute>
           } />

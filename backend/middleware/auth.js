@@ -14,7 +14,7 @@ async function authenticateToken(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await db.get(
-      'SELECT id, name, phone, role, area_id, parent_id, is_active FROM users WHERE id = ?',
+      'SELECT id, name, phone, role, area_id, parent_id, part_name, part_number, part_numbers, is_active FROM users WHERE id = ?',
       [decoded.userId]
     );
 
@@ -46,4 +46,13 @@ function generateToken(userId) {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
 }
 
-module.exports = { authenticateToken, requireAdmin, generateToken };
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Access denied for your role' });
+    }
+    next();
+  };
+}
+
+module.exports = { authenticateToken, requireAdmin, requireRole, generateToken };

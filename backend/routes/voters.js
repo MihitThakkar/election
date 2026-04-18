@@ -5,7 +5,7 @@ const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');
 const { db } = require('../db');
-const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { authenticateToken, requireAdmin, requireRole } = require('../middleware/auth');
 const { VOTER_SELECT } = require('../helpers');
 
 const { execFile } = require('child_process');
@@ -40,14 +40,43 @@ router.get('/', authenticateToken, async (req, res, next) => {
     const where = ['1=1'];
     const params = [];
 
-    if (req.user.role === 'field_worker') {
-      if (req.user.area_id) { where.push('v.area_id = ?'); params.push(req.user.area_id); }
-      else                   { where.push('v.assigned_to = ?'); params.push(req.user.id); }
-    } else {
-      if (area_id)    { where.push('v.area_id = ?');     params.push(area_id); }
-      if (assigned_to){ where.push('v.assigned_to = ?'); params.push(assigned_to); }
+    if (req.user.role === 'team_lead') {
+      if (req.user.part_name) {
+        where.push('v.part_number IN (SELECT part_number FROM parts WHERE part_name = ?)');
+        params.push(req.user.part_name);
+      } else {
+        where.push('1=0');
+      }
+    } else if (req.user.role === 'field_worker') {
+      if (req.user.part_numbers) {
+        const pns = req.user.part_numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+        if (pns.length > 0) {
+          where.push(`v.part_number IN (${pns.map(() => '?').join(',')})`);
+          params.push(...pns);
+        } else {
+          where.push('1=0');
+        }
+      } else if (req.user.part_number) {
+        where.push('v.part_number = ?');
+        params.push(req.user.part_number);
+      } else {
+        where.push('v.assigned_to = ?');
+        params.push(req.user.id);
+      }
+    } else if (req.user.role === 'sub_worker') {
+      if (req.user.part_number) {
+        where.push('v.part_number = ?');
+        params.push(req.user.part_number);
+      } else {
+        where.push('1=0');
+      }
+    }
+    // super_admin sees everything - apply optional filters
+    if (req.user.role === 'super_admin') {
+      if (assigned_to) { where.push('v.assigned_to = ?'); params.push(assigned_to); }
     }
 
+    if (area_id && req.user.role === 'super_admin') { where.push('v.area_id = ?'); params.push(area_id); }
     if (status)         { where.push('v.status = ?'); params.push(status); }
     if (eligible === 'true') { where.push('v.age BETWEEN 18 AND 35'); }
     if (search) {
@@ -91,11 +120,46 @@ router.get('/search', authenticateToken, async (req, res, next) => {
     if (!q || q.length < 2) return res.json({ success: true, data: [] });
 
     const s = `%${q}%`;
+    const where = ['(v.name LIKE ? OR v.voter_id LIKE ? OR v.phone LIKE ? OR v.father_name LIKE ?)'];
+    const params = [s, s, s, s];
+
+    if (req.user.role === 'team_lead') {
+      if (req.user.part_name) {
+        where.push('v.part_number IN (SELECT part_number FROM parts WHERE part_name = ?)');
+        params.push(req.user.part_name);
+      } else {
+        where.push('1=0');
+      }
+    } else if (req.user.role === 'field_worker') {
+      if (req.user.part_numbers) {
+        const pns = req.user.part_numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+        if (pns.length > 0) {
+          where.push(`v.part_number IN (${pns.map(() => '?').join(',')})`);
+          params.push(...pns);
+        } else {
+          where.push('1=0');
+        }
+      } else if (req.user.part_number) {
+        where.push('v.part_number = ?');
+        params.push(req.user.part_number);
+      } else {
+        where.push('v.assigned_to = ?');
+        params.push(req.user.id);
+      }
+    } else if (req.user.role === 'sub_worker') {
+      if (req.user.part_number) {
+        where.push('v.part_number = ?');
+        params.push(req.user.part_number);
+      } else {
+        where.push('1=0');
+      }
+    }
+
     const voters = await db.query(
       `${VOTER_SELECT}
-       WHERE v.name LIKE ? OR v.voter_id LIKE ? OR v.phone LIKE ? OR v.father_name LIKE ?
+       WHERE ${where.join(' AND ')}
        ORDER BY v.name ASC LIMIT 50`,
-      [s, s, s, s]
+      params
     );
 
     res.json({ success: true, data: voters });
@@ -115,8 +179,38 @@ router.put('/:id/status', authenticateToken, async (req, res, next) => {
     const voter = await db.get('SELECT * FROM voters WHERE id = ?', [req.params.id]);
     if (!voter) return res.status(404).json({ success: false, error: 'Voter not found' });
 
-    if (req.user.role === 'field_worker' && req.user.area_id && voter.area_id !== req.user.area_id) {
-      return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+    // Scope check for non-admin roles
+    if (req.user.role === 'team_lead') {
+      if (req.user.part_name) {
+        const parts = await db.query('SELECT part_number FROM parts WHERE part_name = ?', [req.user.part_name]);
+        const allowedParts = parts.map(p => p.part_number);
+        if (!allowedParts.includes(voter.part_number)) {
+          return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+        }
+      } else {
+        return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+      }
+    } else if (req.user.role === 'field_worker') {
+      if (req.user.part_numbers) {
+        const pns = req.user.part_numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+        if (!pns.includes(voter.part_number)) {
+          return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+        }
+      } else if (req.user.part_number) {
+        if (voter.part_number !== req.user.part_number) {
+          return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+        }
+      } else if (req.user.area_id && voter.area_id !== req.user.area_id) {
+        return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+      }
+    } else if (req.user.role === 'sub_worker') {
+      if (req.user.part_number) {
+        if (voter.part_number !== req.user.part_number) {
+          return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+        }
+      } else {
+        return res.status(403).json({ success: false, error: 'Not authorized to update this voter' });
+      }
     }
 
     const now      = status !== 'pending' ? new Date().toISOString() : null;

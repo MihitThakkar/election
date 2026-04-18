@@ -22,13 +22,33 @@ export default function UploadVoters() {
   const [pdfUploading, setPdfUploading] = useState(false);
   const [pdfResult, setPdfResult]   = useState(null);
   const [pdfError, setPdfError]     = useState('');
+  const [partsData, setPartsData]   = useState([]);
+  const [partName, setPartName]     = useState('');
+  const [partNumber, setPartNumber] = useState('');
   const fileRef = useRef();
   const pdfRef = useRef();
 
-  // Correct: useEffect for side effects, not useState initializer
   useEffect(() => {
-    api.get('/areas').then(r => setAreas(r.data.data));
+    Promise.all([api.get('/areas'), api.get('/parts')]).then(([a, p]) => {
+      setAreas(a.data.data);
+      setPartsData(p.data.data || []);
+    });
   }, []);
+
+  const selectedPartEntry = partsData.find(p => p.part_name === partName);
+  const partNumbers = selectedPartEntry ? selectedPartEntry.part_numbers : [];
+  const showPartNumberDropdown = partNumbers.length > 1;
+
+  const handlePartNameChange = (value) => {
+    setPartName(value);
+    setPartNumber('');
+    if (value) {
+      const entry = partsData.find(p => p.part_name === value);
+      if (entry && entry.part_numbers.length === 1) {
+        setPartNumber(String(entry.part_numbers[0]));
+      }
+    }
+  };
 
   const processFile = (f) => {
     setFile(f); setResult(null); setError('');
@@ -67,6 +87,7 @@ export default function UploadVoters() {
     const formData = new FormData();
     formData.append('file', file);
     if (areaId) formData.append('area_id', areaId);
+    if (partNumber) formData.append('part_number', partNumber);
     try {
       const res = await api.post('/voters/upload', formData, { headers: MULTIPART_HEADERS });
       setResult(res.data.data);
@@ -221,14 +242,40 @@ export default function UploadVoters() {
         </div>
       )}
 
-      {/* Area Selection */}
+      {/* Village / Part / Area Selection */}
       <div className="card p-5 anim-up anim-d1">
-        <label className="label">Assign to Area (optional)</label>
-        <select className="input max-w-sm" value={areaId} onChange={e => setAreaId(e.target.value)}>
-          <option value="">— No area assignment —</option>
-          {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-        <p className="text-xs text-slate-500 mt-2">Voters will be associated with this area on import.</p>
+        <h3 className="font-bold mb-3" style={{ color: 'var(--text)' }}>Assign Location</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Village (Part Name) */}
+          <div>
+            <label className="label">Village / Part Name</label>
+            <select className="input" value={partName} onChange={e => handlePartNameChange(e.target.value)}>
+              <option value="">— Select Village —</option>
+              {partsData.map(p => (
+                <option key={p.part_name} value={p.part_name}>
+                  {p.part_name} ({p.count} {p.count > 1 ? 'parts' : 'part'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Part Number - only when village has multiple parts */}
+          {showPartNumberDropdown && (
+            <div>
+              <label className="label">Part Number</label>
+              <select className="input" value={partNumber} onChange={e => setPartNumber(e.target.value)}>
+                <option value="">— Select Part No. —</option>
+                {partNumbers.map(num => (
+                  <option key={num} value={String(num)}>Part {num}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+        </div>
+        <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+          Select a village to tag voters with their polling booth part number. Area is optional.
+        </p>
       </div>
 
       {/* Upload Zone */}

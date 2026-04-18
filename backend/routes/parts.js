@@ -22,10 +22,15 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
-// GET /api/parts/all - List all parts flat
+// GET /api/parts/all - List all parts with voter counts
 router.get('/all', authenticateToken, async (req, res, next) => {
   try {
-    const parts = await db.query('SELECT * FROM parts ORDER BY part_number');
+    const parts = await db.query(`
+      SELECT p.*, COALESCE(vc.total_voters, 0) as total_voters
+      FROM parts p
+      LEFT JOIN (SELECT part_number, COUNT(*) as total_voters FROM voters GROUP BY part_number) vc ON vc.part_number = p.part_number
+      ORDER BY p.part_number
+    `);
     res.json({ success: true, data: parts });
   } catch (err) {
     next(err);

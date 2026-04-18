@@ -6,14 +6,27 @@ import {
   Bell, Video, LogOut, Menu, X, Vote
 } from 'lucide-react';
 
-const adminNav = [
-  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/manage-team',  icon: Users,           label: 'Manage Team' },
-  { to: '/manage-areas', icon: MapPin,           label: 'Manage Areas' },
-  { to: '/upload-voters',icon: Upload,           label: 'Upload Voters' },
-  { to: '/voter-list',   icon: List,             label: 'Voter List' },
-];
-const workerNav = [{ to: '/my-list', icon: List, label: 'My Voter List' }];
+const navByRole = {
+  super_admin: [
+    { to: '/',            icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/team',        icon: Users,           label: 'Manage Team' },
+    { to: '/areas',       icon: MapPin,          label: 'Villages & Parts' },
+    { to: '/upload',      icon: Upload,          label: 'Upload Voters' },
+    { to: '/voters',      icon: List,            label: 'Voter List' },
+  ],
+  team_lead: [
+    { to: '/',            icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/team',        icon: Users,           label: 'My Team' },
+    { to: '/voters',      icon: List,            label: 'Voter List' },
+  ],
+  field_worker: [
+    { to: '/my-list',     icon: List,            label: 'My Voter List' },
+    { to: '/team',        icon: Users,           label: 'My Sub-Workers' },
+  ],
+  sub_worker: [
+    { to: '/my-list',     icon: List,            label: 'My Voter List' },
+  ],
+};
 const sharedNav = [
   { to: '/search',        icon: Search, label: 'Global Search' },
   { to: '/notifications', icon: Bell,   label: 'Notifications', badge: true },
@@ -60,8 +73,9 @@ function NavItem({ item, active, unreadCount }) {
   );
 }
 
+const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker', sub_worker: 'Sub Worker' };
+
 function Sidebar({ user, navItems, unreadCount, location, onLogout }) {
-  const isAdmin = user?.role === 'super_admin';
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -86,7 +100,7 @@ function Sidebar({ user, navItems, unreadCount, location, onLogout }) {
           <div className="min-w-0">
             <div className="text-sm font-semibold truncate" style={{ color: C.text }}>{user?.name}</div>
             <div className="text-[11px] mt-0.5" style={{ color: C.textMuted }}>
-              {isAdmin ? 'Super Admin' : 'Field Worker'}
+              {roleLabels[user?.role] || user?.role}
             </div>
           </div>
         </div>
@@ -122,8 +136,8 @@ export default function Layout({ children }) {
   const navigate  = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isAdmin  = user?.role === 'super_admin';
-  const navItems = isAdmin ? [...adminNav, ...sharedNav] : [...workerNav, ...sharedNav];
+  const roleNav  = navByRole[user?.role] || [];
+  const navItems = [...roleNav, ...sharedNav];
 
   const handleLogout = () => { logout(); navigate('/login'); };
 

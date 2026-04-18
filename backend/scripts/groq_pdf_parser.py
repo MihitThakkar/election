@@ -230,11 +230,106 @@ def crop_epic_regions(image: Image.Image, cells: list) -> list:
 # Groq LLM Vision (main extraction)
 # ---------------------------------------------------------------------------
 
+def safe_parse_json_obj(raw: str) -> dict:
+    """Robustly parse a JSON object (not array) from LLM output."""
+    raw = raw.strip()
+    raw = re.sub(r'^```(?:json)?\s*', '', raw)
+    raw = re.sub(r'\s*```$', '', raw)
+    raw = re.sub(r',\s*([}\]])', r'\1', raw)
+
+    match = re.search(r'\{[\s\S]*\}', raw)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            # Try to fix by extracting key-value pairs
+            obj = {}
+            for m in re.finditer(r'"([^"]+)"\s*:\s*(?:"([^"]*)"|([\d.]+)|(\[[\s\S]*?\])|null|(true|false))', match.group()):
+                key = m.group(1)
+                if m.group(2) is not None:
+                    obj[key] = m.group(2)
+                elif m.group(3) is not None:
+                    val = m.group(3)
+                    obj[key] = int(val) if '.' not in val else float(val)
+                elif m.group(4) is not None:
+                    try:
+                        obj[key] = json.loads(m.group(4))
+                    except:
+                        obj[key] = m.group(4)
+                elif m.group(5) is not None:
+                    obj[key] = m.group(5) == 'true'
+                else:
+                    obj[key] = None
+            return obj
+    return {}
+
+
 class GroqExtractor:
     def __init__(self, api_key: str):
         self.client = Groq(api_key=api_key)
         self.model = "meta-llama/llama-4-scout-17b-16e-instruct"
         self.calls = 0
+
+    def extract_pdf_metadata(self, page1_image: Image.Image) -> dict:
+        """Extract PDF metadata from page 1 (header/info page) using Groq Vision."""
+        enhanced = enhance_image(page1_image)
+        b64 = image_to_base64(enhanced, quality=90)
+
+        prompt = """This is PAGE 1 of an Indian Electoral Roll (निर्वाचक नामावली). Extract ALL metadata as JSON.
+
+Return a JSON object with EXACTLY these fields:
+{
+  "document_title": "निर्वाचक नामावली 2026 S20 राजस्थान",
+  "assembly_constituency_no": 155,
+  "assembly_constituency_name": "वल्लभनगर",
+  "assembly_constituency_reservation": "सामान्य",
+  "part_no": 1,
+  "parliamentary_constituency_no": 21,
+  "parliamentary_constituency_name": "चित्तौड़गढ़",
+  "parliamentary_constituency_reservation": "सामान्य",
+  "revision_year": 2026,
+  "qualifying_date": "01-01-2026",
+  "revision_type": "विशेष गहन पुनरीक्षण - 2026",
+  "publication_date": "16-12-2025",
+  "roll_identity": "समस्त पूरकों को समेकित करते हुए ...",
+  "sub_sections": ["1-झाजेता,गोटीपा", "2-उकेलाई,गोटीपा"],
+  "main_village": "गोटीपा (भी)",
+  "ward": null,
+  "post_office": "BALATHAL BO",
+  "police_station": "वल्लभ नगर",
+  "tehsil": null,
+  "district": "उदयपुर",
+  "pin_code": "313601",
+  "polling_station_no": 1,
+  "polling_station_name": "गोटीपा (ऊठाला)",
+  "polling_station_category": "सामान्य",
+  "auxiliary_stations": 0,
+  "polling_station_address": "राजकीय उच्च माध्यमिक विद्यालय, कमरा नम्बर 1, गोटिपा",
+  "total_male": 335,
+  "total_female": 298,
+  "total_third_gender": 0,
+  "total_voters": 633,
+  "start_sr_no": 1,
+  "end_sr_no": 633
+}
+
+Read EVERY field carefully from the page. Return ONLY valid JSON. No markdown."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": prompt}
+                ]}],
+                max_tokens=4000,
+                temperature=0
+            )
+            self.calls += 1
+            return safe_parse_json_obj(response.choices[0].message.content)
+        except Exception as e:
+            print(f"    Groq metadata error: {e}", file=sys.stderr)
+            return {}
 
     def extract_page(self, image: Image.Image) -> list:
         """Extract all voters from a single page image."""
@@ -418,6 +513,20 @@ def migrate_db(conn):
         ("relation_type", "VARCHAR(10)"), ("epic_confidence", "FLOAT"),
         ("roll_type", "VARCHAR(20)"), ("roll_year", "INT"),
         ("source_pdf", "VARCHAR(500)"),
+        # Page 1 metadata columns
+        ("parliamentary_constituency_no", "INT"),
+        ("parliamentary_constituency_name", "VARCHAR(255)"),
+        ("main_village", "VARCHAR(255)"),
+        ("post_office", "VARCHAR(255)"),
+        ("police_station", "VARCHAR(255)"),
+        ("tehsil", "VARCHAR(255)"),
+        ("district", "VARCHAR(255)"),
+        ("pin_code", "VARCHAR(10)"),
+        ("polling_station_no", "INT"),
+        ("polling_station_name", "VARCHAR(255)"),
+        ("polling_station_category", "VARCHAR(50)"),
+        ("polling_station_address", "VARCHAR(500)"),
+        ("sub_section", "VARCHAR(255)"),
     ]
     for col, typ in cols:
         try:
@@ -431,17 +540,31 @@ def insert_voters_batch(conn, voters: list, meta: dict, source_pdf: str):
     cursor = conn.cursor()
     sql = """INSERT INTO voters
       (name, age, voter_id, father_name, gender, address,
-       state_code, constituency_no, part_no, sr_no, house_no,
-       relation_type, epic_confidence, roll_type, roll_year, source_pdf)
-    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+       state_code, constituency_no, constituency_name, part_no, sr_no, house_no,
+       relation_type, epic_confidence, roll_type, roll_year, source_pdf,
+       parliamentary_constituency_no, parliamentary_constituency_name,
+       main_village, post_office, police_station, tehsil, district, pin_code,
+       polling_station_no, polling_station_name, polling_station_category,
+       polling_station_address, sub_section)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     ON DUPLICATE KEY UPDATE
       name=VALUES(name), age=VALUES(age), father_name=VALUES(father_name),
       gender=VALUES(gender), state_code=VALUES(state_code),
-      constituency_no=VALUES(constituency_no), part_no=VALUES(part_no),
-      sr_no=VALUES(sr_no), house_no=VALUES(house_no),
+      constituency_no=VALUES(constituency_no), constituency_name=VALUES(constituency_name),
+      part_no=VALUES(part_no), sr_no=VALUES(sr_no), house_no=VALUES(house_no),
       relation_type=VALUES(relation_type), epic_confidence=VALUES(epic_confidence),
       roll_type=VALUES(roll_type), roll_year=VALUES(roll_year),
-      source_pdf=VALUES(source_pdf)"""
+      source_pdf=VALUES(source_pdf),
+      parliamentary_constituency_no=VALUES(parliamentary_constituency_no),
+      parliamentary_constituency_name=VALUES(parliamentary_constituency_name),
+      main_village=VALUES(main_village), post_office=VALUES(post_office),
+      police_station=VALUES(police_station), tehsil=VALUES(tehsil),
+      district=VALUES(district), pin_code=VALUES(pin_code),
+      polling_station_no=VALUES(polling_station_no),
+      polling_station_name=VALUES(polling_station_name),
+      polling_station_category=VALUES(polling_station_category),
+      polling_station_address=VALUES(polling_station_address),
+      sub_section=VALUES(sub_section)"""
 
     batch = []
     skipped = 0
@@ -453,11 +576,20 @@ def insert_voters_batch(conn, voters: list, meta: dict, source_pdf: str):
         addr = f"House {v.get('house_no', '')}" if v.get('house_no') else None
         batch.append((
             v.get('name'), v.get('age'), vid, v.get('father_name'),
-            v.get('gender'), addr, meta.get('state_code'),
-            meta.get('constituency_no'), meta.get('part_no'),
+            v.get('gender'), addr, v.get('state_code', meta.get('state_code')),
+            v.get('constituency_no', meta.get('constituency_no')),
+            v.get('constituency_name'), v.get('part_no', meta.get('part_no')),
             v.get('sr_no'), v.get('house_no'), v.get('relation_type'),
-            v.get('epic_confidence'), meta.get('roll_type'),
-            meta.get('year'), source_pdf))
+            v.get('epic_confidence'), v.get('roll_type', meta.get('roll_type')),
+            v.get('roll_year', meta.get('year')), source_pdf,
+            v.get('parliamentary_constituency_no'),
+            v.get('parliamentary_constituency_name'),
+            v.get('main_village'), v.get('post_office'),
+            v.get('police_station'), v.get('tehsil'),
+            v.get('district'), v.get('pin_code'),
+            v.get('polling_station_no'), v.get('polling_station_name'),
+            v.get('polling_station_category'), v.get('polling_station_address'),
+            v.get('sub_section')))
 
     if batch:
         cursor.executemany(sql, batch)
@@ -472,17 +604,18 @@ def insert_voters_batch(conn, voters: list, meta: dict, source_pdf: str):
 
 def process_pdf(pdf_path: str, groq_ext: GroqExtractor,
                 gv_verifier=None, skip_pages: set = None,
-                dpi: int = 300, verbose: bool = True) -> list:
+                dpi: int = 300, verbose: bool = True) -> tuple:
+    """Process PDF and return (voters_list, pdf_metadata_dict)."""
     if skip_pages is None:
         skip_pages = {1, 2}
 
     pdf_name = Path(pdf_path).name
-    meta = parse_pdf_filename(pdf_path)
+    file_meta = parse_pdf_filename(pdf_path)
 
     if verbose:
         print(f"\n{'='*60}", file=sys.stderr)
         print(f"Processing: {pdf_name}", file=sys.stderr)
-        print(f"Metadata: {json.dumps(meta, default=str)}", file=sys.stderr)
+        print(f"File metadata: {json.dumps(file_meta, default=str)}", file=sys.stderr)
         print(f"Converting PDF → images ({dpi} DPI)...", file=sys.stderr)
 
     images = convert_from_path(pdf_path, dpi=dpi)
@@ -490,14 +623,46 @@ def process_pdf(pdf_path: str, groq_ext: GroqExtractor,
     if verbose:
         print(f"Pages: {total_pages}", file=sys.stderr)
 
+    # ---- Step 0: Parse page 1 metadata via Groq Vision ----
+    if verbose:
+        print(f"  Page 1/{total_pages}: extracting PDF metadata...", file=sys.stderr, end='', flush=True)
+    pdf_meta = groq_ext.extract_pdf_metadata(images[0])
+    time.sleep(2)
+
+    # Merge file_meta with parsed page-1 metadata (page-1 takes priority)
+    meta = {**file_meta}
+    if pdf_meta.get('assembly_constituency_no'):
+        meta['constituency_no'] = pdf_meta['assembly_constituency_no']
+    if pdf_meta.get('part_no'):
+        meta['part_no'] = pdf_meta['part_no']
+    if pdf_meta.get('revision_year'):
+        meta['year'] = pdf_meta['revision_year']
+
+    if verbose:
+        ac_name = pdf_meta.get('assembly_constituency_name', '?')
+        village = pdf_meta.get('main_village', '?')
+        ps_name = pdf_meta.get('polling_station_name', '?')
+        part = meta.get('part_no', '?')
+        cat = pdf_meta.get('polling_station_category', '?')
+        print(f" done", file=sys.stderr)
+        print(f"    Constituency: {meta.get('constituency_no')} - {ac_name}", file=sys.stderr)
+        print(f"    Part No: {part} | Village: {village}", file=sys.stderr)
+        print(f"    Polling Station: {ps_name} ({cat})", file=sys.stderr)
+        print(f"    District: {pdf_meta.get('district', '?')} | PIN: {pdf_meta.get('pin_code', '?')}", file=sys.stderr)
+        total_v = pdf_meta.get('total_voters', '?')
+        m_v = pdf_meta.get('total_male', '?')
+        f_v = pdf_meta.get('total_female', '?')
+        print(f"    Voters: {total_v} (M:{m_v} F:{f_v})", file=sys.stderr)
+    print(f"  Page 2/{total_pages}: skipped (maps/photos)", file=sys.stderr)
+
     all_voters = []
     global_sr = 0
 
     for page_num, image in enumerate(images, 1):
         if page_num in skip_pages or page_num == total_pages:
-            if verbose:
-                label = "header/info" if page_num in skip_pages else "summary"
-                print(f"  Page {page_num}/{total_pages}: skipped ({label})", file=sys.stderr)
+            if page_num > 2 and page_num != total_pages:
+                if verbose:
+                    print(f"  Page {page_num}/{total_pages}: skipped", file=sys.stderr)
             continue
 
         if verbose:
@@ -515,7 +680,7 @@ def process_pdf(pdf_path: str, groq_ext: GroqExtractor,
             if verbose and overrides:
                 print(f" ({overrides} EPIC corrected)", file=sys.stderr, end='', flush=True)
 
-        # Assign sr_no and metadata
+        # Assign sr_no, defaults, and attach page-1 metadata to each voter
         for v in voters:
             global_sr += 1
             v.setdefault('sr_no', global_sr)
@@ -528,6 +693,29 @@ def process_pdf(pdf_path: str, groq_ext: GroqExtractor,
             v.setdefault('house_no', None)
             v.setdefault('epic_confidence', 0.85)
 
+            # Attach PDF metadata to every voter record
+            v['state_code'] = meta.get('state_code')
+            v['constituency_no'] = meta.get('constituency_no')
+            v['constituency_name'] = pdf_meta.get('assembly_constituency_name')
+            v['part_no'] = meta.get('part_no')
+            v['roll_type'] = meta.get('roll_type')
+            v['roll_year'] = meta.get('year')
+            v['parliamentary_constituency_no'] = pdf_meta.get('parliamentary_constituency_no')
+            v['parliamentary_constituency_name'] = pdf_meta.get('parliamentary_constituency_name')
+            v['main_village'] = pdf_meta.get('main_village')
+            v['post_office'] = pdf_meta.get('post_office')
+            v['police_station'] = pdf_meta.get('police_station')
+            v['tehsil'] = pdf_meta.get('tehsil')
+            v['district'] = pdf_meta.get('district')
+            v['pin_code'] = pdf_meta.get('pin_code')
+            v['polling_station_no'] = pdf_meta.get('polling_station_no')
+            v['polling_station_name'] = pdf_meta.get('polling_station_name')
+            v['polling_station_category'] = pdf_meta.get('polling_station_category')
+            v['polling_station_address'] = pdf_meta.get('polling_station_address')
+            # Sub-sections as comma-separated string
+            subs = pdf_meta.get('sub_sections')
+            v['sub_section'] = ', '.join(subs) if isinstance(subs, list) else subs
+
         all_voters.extend(voters)
 
         if verbose:
@@ -536,7 +724,7 @@ def process_pdf(pdf_path: str, groq_ext: GroqExtractor,
         # Rate limit: Groq has ~30 req/min on free tier
         time.sleep(2)
 
-    return all_voters
+    return all_voters, pdf_meta
 
 
 def print_stats(voters: list, groq_calls: int, gv_calls: int):
@@ -582,14 +770,37 @@ def print_stats(voters: list, groq_calls: int, gv_calls: int):
     print(f"  Est. Cost: Groq ~${groq_cost:.2f}, GVision ~${gv_cost:.2f}", file=sys.stderr)
 
 
-FIELDS = ['sr_no', 'name', 'father_name', 'relation_type', 'age', 'gender',
-          'voter_id', 'epic_confidence', 'house_no',
-          'state_code', 'constituency_no', 'part_no']
+FIELDS = [
+    'sr_no', 'name', 'father_name', 'relation_type', 'age', 'gender',
+    'voter_id', 'epic_confidence', 'house_no',
+    # Constituency & Part
+    'state_code', 'constituency_no', 'constituency_name', 'part_no',
+    # Parliamentary
+    'parliamentary_constituency_no', 'parliamentary_constituency_name',
+    # Location
+    'main_village', 'district', 'tehsil', 'post_office', 'police_station', 'pin_code',
+    # Polling Station
+    'polling_station_no', 'polling_station_name', 'polling_station_category',
+    'polling_station_address',
+    # Sub-sections
+    'sub_section',
+    # Roll info
+    'roll_type', 'roll_year',
+]
 
 
-def output_json(voters: list) -> str:
-    clean = [{k: v.get(k) for k in FIELDS} for v in voters]
-    return json.dumps(clean, ensure_ascii=False, indent=2)
+def output_json(voters: list, pdf_meta: dict = None) -> str:
+    """Output voters as JSON with optional pdf_metadata wrapper."""
+    clean_voters = [{k: v.get(k) for k in FIELDS} for v in voters]
+    if pdf_meta:
+        output = {
+            "pdf_metadata": pdf_meta,
+            "voters": clean_voters,
+            "total_voters": len(clean_voters),
+        }
+    else:
+        output = clean_voters
+    return json.dumps(output, ensure_ascii=False, indent=2)
 
 
 def output_csv(voters: list) -> str:
@@ -651,6 +862,8 @@ def main():
     start = time.time()
 
     path = Path(args.path)
+    all_pdf_meta = {}
+
     if args.batch or path.is_dir():
         pdf_files = sorted(path.glob('*.pdf'))
         if not pdf_files:
@@ -660,16 +873,28 @@ def main():
         all_voters = []
         for i, pdf in enumerate(pdf_files, 1):
             print(f"\n[{i}/{len(pdf_files)}]", file=sys.stderr, end='')
-            voters = process_pdf(str(pdf), groq_ext, gv_verifier,
-                                 skip_pages=skip, dpi=args.dpi, verbose=verbose)
-            # Tag source PDF
+            voters, pdf_meta = process_pdf(str(pdf), groq_ext, gv_verifier,
+                                           skip_pages=skip, dpi=args.dpi, verbose=verbose)
             for v in voters:
                 v['source_pdf'] = pdf.name
             all_voters.extend(voters)
+            all_pdf_meta[pdf.name] = pdf_meta
+
+            # DB insert per-PDF in batch mode
+            if args.db:
+                conn = get_db_connection()
+                migrate_db(conn)
+                file_meta = parse_pdf_filename(str(pdf))
+                inserted, skipped = insert_voters_batch(conn, voters, file_meta, pdf.name)
+                if verbose:
+                    print(f"    DB: {inserted} inserted, {skipped} skipped", file=sys.stderr)
+                conn.close()
+
         voters = all_voters
     else:
-        voters = process_pdf(str(path), groq_ext, gv_verifier,
-                             skip_pages=skip, dpi=args.dpi, verbose=verbose)
+        voters, pdf_meta = process_pdf(str(path), groq_ext, gv_verifier,
+                                       skip_pages=skip, dpi=args.dpi, verbose=verbose)
+        all_pdf_meta[path.name] = pdf_meta
         for v in voters:
             v['source_pdf'] = path.name
 
@@ -678,22 +903,34 @@ def main():
     print_stats(voters, groq_ext.calls, gv_calls)
     print(f"\n  Time: {elapsed:.1f}s", file=sys.stderr)
 
-    # DB insert
-    if args.db:
+    # DB insert (single file mode)
+    if args.db and not (args.batch or path.is_dir()):
         print(f"\nInserting into MySQL...", file=sys.stderr)
         conn = get_db_connection()
         migrate_db(conn)
-        meta = parse_pdf_filename(str(path))
-        inserted, skipped = insert_voters_batch(conn, voters, meta, path.name)
+        file_meta = parse_pdf_filename(str(path))
+        inserted, skipped = insert_voters_batch(conn, voters, file_meta, path.name)
         print(f"  Inserted: {inserted}, Skipped (no EPIC): {skipped}", file=sys.stderr)
         conn.close()
 
     # Output
-    output = output_json(voters) if args.format == 'json' else output_csv(voters)
+    single_meta = all_pdf_meta.get(path.name) if not (args.batch or path.is_dir()) else None
+    if args.format == 'json':
+        output = output_json(voters, pdf_meta=single_meta)
+    else:
+        output = output_csv(voters)
+
     if args.out:
         with open(args.out, 'w', encoding='utf-8') as f:
             f.write(output)
         print(f"\nOutput: {args.out}", file=sys.stderr)
+
+        # Also write metadata JSON alongside CSV
+        if args.format == 'csv' and single_meta:
+            meta_path = args.out.replace('.csv', '_metadata.json')
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(single_meta, f, ensure_ascii=False, indent=2)
+            print(f"Metadata: {meta_path}", file=sys.stderr)
     elif not args.db:
         print(output)
 

@@ -85,7 +85,7 @@ async function initDatabase() {
       name VARCHAR(255) NOT NULL,
       phone VARCHAR(20) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
-      role ENUM('super_admin', 'field_worker') NOT NULL,
+      role ENUM('super_admin', 'team_lead', 'field_worker', 'sub_worker') NOT NULL,
       parent_id INT,
       area_id INT,
       is_active TINYINT DEFAULT 1,
@@ -190,6 +190,10 @@ async function initDatabase() {
   const safeAlter = async (sql) => { try { await p.query(sql); } catch {} };
   await safeAlter('ALTER TABLE voters ADD COLUMN part_number INT');
   await safeAlter('CREATE INDEX idx_voters_part ON voters(part_number)');
+  await safeAlter('ALTER TABLE users ADD COLUMN part_name VARCHAR(255)');
+  await safeAlter('ALTER TABLE users ADD COLUMN part_number INT');
+  await safeAlter("ALTER TABLE users MODIFY COLUMN role ENUM('super_admin', 'team_lead', 'field_worker', 'sub_worker') NOT NULL");
+  await safeAlter('ALTER TABLE users ADD COLUMN part_numbers VARCHAR(500)');
 
   console.log('Database tables initialized');
 }
@@ -249,6 +253,17 @@ async function seedDatabase() {
   await p.execute(insertUser, ['Rahul Chauhan', '7777777001', workerPass, 'field_worker', 1, amitId]);
   await p.execute(insertUser, ['Vikram Joshi', '7777777002', workerPass, 'field_worker', 1, amitId]);
   await p.execute(insertUser, ['Sanjay Negi', '7777777003', workerPass, 'field_worker', 2, deepakId]);
+
+  // Team Leads (assigned to a village)
+  const tlResult = await db.run(
+    'INSERT IGNORE INTO users (name, phone, password, role, part_name, parent_id) VALUES (?, ?, ?, ?, ?, ?)',
+    ['Vikram Team Lead', '6666666001', adminPass, 'team_lead', 'VALLABH NAGAR', null]
+  );
+  // Sub Workers
+  await db.run(
+    'INSERT IGNORE INTO users (name, phone, password, role, part_number, parent_id) VALUES (?, ?, ?, ?, ?, ?)',
+    ['Ravi Sub Worker', '5555555001', workerPass, 'sub_worker', 18, 4]
+  );
 
   console.log('Database seeded with admin users and areas');
 }

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { db } = require('../db');
-const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { authenticateToken, requireAdmin, requireRole } = require('../middleware/auth');
 const { phoneExists, VOTER_STATS_SUBQUERIES } = require('../helpers');
 
 // GET /api/users
@@ -11,7 +11,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
     const { role, area_id, parent_id } = req.query;
 
     let query = `
-      SELECT u.id, u.name, u.phone, u.role, u.area_id, u.parent_id, u.is_active, u.created_at,
+      SELECT u.id, u.name, u.phone, u.role, u.area_id, u.parent_id, u.part_name, u.part_number, u.is_active, u.created_at,
              a.name as area_name,
              p.name as parent_name,
              ${VOTER_STATS_SUBQUERIES}
@@ -70,9 +70,9 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
 });
 
 // POST /api/users
-router.post('/', authenticateToken, requireAdmin, async (req, res, next) => {
+router.post('/', authenticateToken, requireRole('super_admin', 'team_lead', 'field_worker'), async (req, res, next) => {
   try {
-    const { name, phone, password, role, area_id, parent_id } = req.body;
+    const { name, phone, password, role, area_id, parent_id, part_name, part_number } = req.body;
     if (!name || !phone || !password || !role) {
       return res.status(400).json({ success: false, error: 'Name, phone, password and role are required' });
     }
@@ -81,12 +81,12 @@ router.post('/', authenticateToken, requireAdmin, async (req, res, next) => {
     }
 
     const result = await db.run(
-      'INSERT INTO users (name, phone, password, role, area_id, parent_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, phone, bcrypt.hashSync(password, 10), role, area_id || null, parent_id || null]
+      'INSERT INTO users (name, phone, password, role, area_id, parent_id, part_name, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, phone, bcrypt.hashSync(password, 10), role, area_id || null, parent_id || null, part_name || null, part_number || null]
     );
 
     const user = await db.get(
-      'SELECT id, name, phone, role, area_id, parent_id, is_active FROM users WHERE id = ?',
+      'SELECT id, name, phone, role, area_id, parent_id, part_name, part_number, is_active FROM users WHERE id = ?',
       [result.insertId]
     );
     res.status(201).json({ success: true, data: user });
@@ -106,19 +106,21 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
     const user = await db.get('SELECT * FROM users WHERE id = ?', [targetId]);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    const { name, phone, password, role, area_id, parent_id, is_active } = req.body;
+    const { name, phone, password, role, area_id, parent_id, is_active, part_name, part_number } = req.body;
 
     if (phone && phone !== user.phone && await phoneExists(phone, targetId)) {
       return res.status(400).json({ success: false, error: 'Phone number already in use' });
     }
 
     const updates = {
-      name:      name     || user.name,
-      phone:     phone    || user.phone,
-      role:      req.user.role === 'super_admin' ? (role || user.role) : user.role,
-      area_id:   area_id   !== undefined ? (area_id   || null) : user.area_id,
-      parent_id: parent_id !== undefined ? (parent_id || null) : user.parent_id,
-      is_active: is_active !== undefined ? (is_active ? 1 : 0) : user.is_active,
+      name:        name     || user.name,
+      phone:       phone    || user.phone,
+      role:        req.user.role === 'super_admin' ? (role || user.role) : user.role,
+      area_id:     area_id     !== undefined ? (area_id     || null) : user.area_id,
+      parent_id:   parent_id   !== undefined ? (parent_id   || null) : user.parent_id,
+      part_name:   part_name   !== undefined ? (part_name   || null) : user.part_name,
+      part_number: part_number !== undefined ? (part_number || null) : user.part_number,
+      is_active:   is_active   !== undefined ? (is_active ? 1 : 0)  : user.is_active,
     };
     if (password) updates.password = bcrypt.hashSync(password, 10);
 
@@ -126,7 +128,7 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
     await db.run(`UPDATE users SET ${fields} WHERE id = ?`, [...Object.values(updates), targetId]);
 
     const updated = await db.get(
-      'SELECT id, name, phone, role, area_id, parent_id, is_active FROM users WHERE id = ?',
+      'SELECT id, name, phone, role, area_id, parent_id, part_name, part_number, is_active FROM users WHERE id = ?',
       [targetId]
     );
     res.json({ success: true, data: updated });
@@ -155,8 +157,8 @@ router.post('/:id/add-sub-worker', authenticateToken, async (req, res, next) => 
     }
 
     const result = await db.run(
-      'INSERT INTO users (name, phone, password, role, area_id, parent_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, phone, bcrypt.hashSync(password, 10), 'field_worker', parent.area_id, parentId]
+      'INSERT INTO users (name, phone, password, role, area_id, parent_id, part_name, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, phone, bcrypt.hashSync(password, 10), 'field_worker', parent.area_id, parentId, parent.part_name, parent.part_number]
     );
 
     const user = await db.get(
@@ -195,7 +197,7 @@ router.get('/:id/hierarchy', authenticateToken, async (req, res, next) => {
 });
 
 // DELETE /api/users/:id
-router.delete('/:id', authenticateToken, requireAdmin, async (req, res, next) => {
+router.delete('/:id', authenticateToken, requireRole('super_admin', 'team_lead'), async (req, res, next) => {
   try {
     const targetId = parseInt(req.params.id);
     if (targetId === req.user.id) {

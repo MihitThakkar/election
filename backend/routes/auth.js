@@ -34,12 +34,15 @@ router.post('/login', async (req, res, next) => {
       data: {
         token,
         user: {
-          id:        user.id,
-          name:      user.name,
-          phone:     user.phone,
-          role:      user.role,
-          area_id:   user.area_id,
-          parent_id: user.parent_id,
+          id:           user.id,
+          name:         user.name,
+          phone:        user.phone,
+          role:         user.role,
+          area_id:      user.area_id,
+          parent_id:    user.parent_id,
+          part_name:    user.part_name,
+          part_number:  user.part_number,
+          part_numbers: user.part_numbers,
         },
         unreadCount,
       },
@@ -53,7 +56,8 @@ router.post('/login', async (req, res, next) => {
 router.get('/me', authenticateToken, async (req, res, next) => {
   try {
     const user = await db.get(`
-      SELECT u.id, u.name, u.phone, u.role, u.area_id, u.parent_id, u.is_active,
+      SELECT u.id, u.name, u.phone, u.role, u.area_id, u.parent_id,
+             u.part_name, u.part_number, u.part_numbers, u.is_active,
              a.name as area_name
       FROM users u
       LEFT JOIN areas a ON u.area_id = a.id
