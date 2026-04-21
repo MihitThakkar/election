@@ -2,22 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
-const { VOTER_STATS_SUBQUERIES } = require('../helpers');
+const { VOTER_STATS_SUBQUERIES, getTeamUserIds, voterAssignmentScope } = require('../helpers');
 
-// Helper: build voter scope WHERE clause based on user role
-function voterScopeWhere(user) {
-  if (user.role === 'super_admin') return { where: '1=1', params: [] };
-  if (user.role === 'team_lead' && user.part_name) {
-    return { where: 'v.part_number IN (SELECT part_number FROM parts WHERE part_name = ?)', params: [user.part_name] };
-  }
-  if (user.role === 'field_worker') {
-    if (user.part_numbers) {
-      const pns = user.part_numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
-      if (pns.length > 0) return { where: `v.part_number IN (${pns.map(() => '?').join(',')})`, params: pns };
-    }
-    if (user.part_number) return { where: 'v.part_number = ?', params: [user.part_number] };
-  }
-  return { where: '1=0', params: [] };
+// Build voter scope WHERE clause based on hierarchy (same model as /api/voters).
+async function voterScopeWhere(user) {
+  const ids = await getTeamUserIds(user);
+  return voterAssignmentScope(ids);
 }
 
 // GET /api/dashboard/stats
@@ -27,8 +17,8 @@ router.get('/stats', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Dashboard access denied' });
     }
 
-    const { where, params } = voterScopeWhere(req.user);
-    const p2 = [...params, ...params, ...params, ...params, ...params]; // repeated for each subquery
+    const { where, params } = await voterScopeWhere(req.user);
+    const p2 = [...params, ...params, ...params, ...params, ...params, ...params]; // repeated for each subquery
 
     const stats = await db.get(`
       SELECT
@@ -135,7 +125,7 @@ router.get('/today', authenticateToken, async (req, res, next) => {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const { where, params } = voterScopeWhere(req.user);
+    const { where, params } = await voterScopeWhere(req.user);
 
     const todayDone    = await db.get(`SELECT COUNT(*) as count FROM voters v WHERE ${where} AND v.status='done' AND DATE(v.marked_at) = ?`, [...params, today]);
     const todayRefused = await db.get(`SELECT COUNT(*) as count FROM voters v WHERE ${where} AND v.status='refused' AND DATE(v.marked_at) = ?`, [...params, today]);

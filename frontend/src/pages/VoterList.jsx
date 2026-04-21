@@ -1,10 +1,36 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Filter, UserCheck, ChevronLeft, ChevronRight, Users, X, Shield, User } from 'lucide-react';
+import { Filter, UserCheck, ChevronLeft, ChevronRight, Users, X, Shield, User, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
 import api from '../utils/api';
-import { STATUS_CONFIG, isEligible } from '../utils/helpers';
+import { STATUS_CONFIG, isEligible, getApiError } from '../utils/helpers';
 import { TableSpinner } from '../components/Spinner';
 
 const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker' };
+
+/** Tap-to-approve / reject icon group (reused per table row). */
+function StatusActions({ voter, updating, onChange }) {
+  const btn = (status, Icon, title, dark) => (
+    <button
+      key={status}
+      onClick={() => onChange(status)}
+      disabled={updating || voter.status === status}
+      title={title}
+      className="w-8 h-8 rounded-lg flex items-center justify-center transition-all active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed"
+      style={dark
+        ? { background: 'var(--accent)', color: 'var(--accent-fg)' }
+        : { background: 'var(--bg)', color: 'var(--text-2)', border: '1px solid var(--border)' }}
+    >
+      {updating ? <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+               : <Icon size={14} />}
+    </button>
+  );
+  return (
+    <div className="flex gap-1.5">
+      {btn('done',    CheckCircle, 'Approve', true)}
+      {btn('refused', XCircle,     'Reject',  false)}
+      {btn('pending', RotateCcw,   'Reset to Pending', false)}
+    </div>
+  );
+}
 
 function AssignPanel({ count, teamMembers, onAssign, onClose }) {
   const [assignTo, setAssignTo] = useState(null);
@@ -142,7 +168,9 @@ export default function VoterList() {
   const [pages, setPages]     = useState(1);
   const [loading, setLoading] = useState(true);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [filters, setFilters] = useState({ status: '', assigned_to: '', eligible: false });
+  // Default: eligible (age 18-35) filter is ON
+  const [filters, setFilters] = useState({ status: '', assigned_to: '', eligible: true });
+  const [updating, setUpdating] = useState(null);
   const [page, setPage]       = useState(1);
   const [selected, setSelected] = useState([]);
   const [showAssign, setShowAssign] = useState(false);
@@ -212,6 +240,18 @@ export default function VoterList() {
   const handleBulkAssign = async (voterIds, workerId) => {
     await api.post('/voters/assign', { voter_ids: voterIds, worker_id: parseInt(workerId) });
     setSelected([]); setShowAssign(false); fetchVoters();
+  };
+
+  const handleStatusChange = async (voterId, status) => {
+    setUpdating(voterId);
+    try {
+      const res = await api.put(`/voters/${voterId}/status`, { status });
+      setVoters(prev => prev.map(v => v.id === voterId ? { ...v, ...res.data.data } : v));
+    } catch (err) {
+      alert(getApiError(err, 'Failed to update status'));
+    } finally {
+      setUpdating(null);
+    }
   };
 
   const hasFilters = filters.status || filters.assigned_to || filters.eligible || partName;
@@ -321,11 +361,12 @@ export default function VoterList() {
                 <th className="hidden lg:table-cell">Village</th>
                 <th className="hidden lg:table-cell">Assigned To</th>
                 <th>Status</th>
+                <th style={{ width: 130 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading
-                ? <TableSpinner cols={7} />
+                ? <TableSpinner cols={8} />
                 : voters.map(v => {
                     const el  = isEligible(v.age);
                     const cfg = STATUS_CONFIG[v.status] ?? STATUS_CONFIG.pending;
@@ -361,12 +402,16 @@ export default function VoterList() {
                           <span className={cfg.badge}>{cfg.label}</span>
                           {v.marked_by_name && <div className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>by {v.marked_by_name}</div>}
                         </td>
+                        <td>
+                          <StatusActions voter={v} updating={updating === v.id}
+                            onChange={(status) => handleStatusChange(v.id, status)} />
+                        </td>
                       </tr>
                     );
                   })
               }
               {!loading && voters.length === 0 && (
-                <tr><td colSpan="7" className="py-12 text-center" style={{ color: 'var(--text-3)' }}>
+                <tr><td colSpan="8" className="py-12 text-center" style={{ color: 'var(--text-3)' }}>
                   <Users size={26} className="mx-auto mb-2 opacity-25" />
                   No voters found matching your filters.
                 </td></tr>

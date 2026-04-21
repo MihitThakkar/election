@@ -5,7 +5,13 @@ import { isEligible, STATUS_CONFIG, getApiError, formatDateTime } from '../utils
 import { useAuth } from '../context/AuthContext';
 import { PageSpinner } from '../components/Spinner';
 
-const TABS = ['All', 'Pending', 'Done', 'Refused'];
+// UI tabs → DB status enum (done='approved', refused='rejected' labels only)
+const TABS = [
+  { key: 'all',     label: 'All' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'done',    label: 'Approved' },
+  { key: 'refused', label: 'Rejected' },
+];
 
 /** Reusable action button for voter status changes */
 function ActionBtn({ onClick, disabled, title, children, dark }) {
@@ -73,17 +79,17 @@ function VoterCard({ voter, onStatusChange, updating }) {
         {/* Actions */}
         <div className="flex flex-col gap-1.5 flex-shrink-0 pt-0.5">
           {voter.status !== 'done' && (
-            <ActionBtn onClick={() => onStatusChange(voter.id, 'done')} disabled={isUpdating} title="Mark Done" dark>
+            <ActionBtn onClick={() => onStatusChange(voter.id, 'done')} disabled={isUpdating} title="Approve" dark>
               {isUpdating ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <CheckCircle size={17} />}
             </ActionBtn>
           )}
           {voter.status !== 'refused' && (
-            <ActionBtn onClick={() => onStatusChange(voter.id, 'refused')} disabled={isUpdating} title="Mark Refused">
+            <ActionBtn onClick={() => onStatusChange(voter.id, 'refused')} disabled={isUpdating} title="Reject">
               <XCircle size={17} />
             </ActionBtn>
           )}
           {voter.status !== 'pending' && (
-            <ActionBtn onClick={() => onStatusChange(voter.id, 'pending')} disabled={isUpdating} title="Reset">
+            <ActionBtn onClick={() => onStatusChange(voter.id, 'pending')} disabled={isUpdating} title="Reset to Pending">
               <RotateCcw size={14} />
             </ActionBtn>
           )}
@@ -98,17 +104,20 @@ export default function MyList() {
   const [voters, setVoters]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [updating, setUpdating] = useState(null);
-  const [activeTab, setActiveTab] = useState('All');
+  const [activeTab, setActiveTab] = useState('all');
+  const [eligibleOnly, setEligibleOnly] = useState(true); // default: 18-35 only
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const fetchVoters = useCallback(async () => {
     try {
-      const res = await api.get('/voters', { params: { limit: 500 } });
+      const params = { limit: 500 };
+      if (eligibleOnly) params.eligible = true;
+      const res = await api.get('/voters', { params });
       setVoters(res.data.data);
       setLastRefresh(new Date());
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
-  }, []);
+  }, [eligibleOnly]);
 
   useEffect(() => {
     fetchVoters();
@@ -132,7 +141,7 @@ export default function MyList() {
     pending: voters.filter(v => v.status === 'pending').length,
   };
 
-  const filtered = activeTab === 'All' ? voters : voters.filter(v => v.status === activeTab.toLowerCase());
+  const filtered = activeTab === 'all' ? voters : voters.filter(v => v.status === activeTab);
   const completionPct = stats.total ? Math.round(((stats.done + stats.refused) / stats.total) * 100) : 0;
 
   if (loading) return <PageSpinner message="Loading your voter list..." />;
@@ -153,13 +162,21 @@ export default function MyList() {
         </button>
       </div>
 
+      {/* Eligible (18-35) default filter toggle */}
+      <label className="card flex items-center gap-2 px-3 py-2.5 cursor-pointer anim-up anim-d1"
+        style={{ border: '1px solid var(--border)' }}>
+        <input type="checkbox" checked={eligibleOnly}
+          onChange={e => setEligibleOnly(e.target.checked)} className="w-4 h-4 accent-black" />
+        <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>Eligible only (age 18-35)</span>
+      </label>
+
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 anim-list">
         {[
-          { label: 'Total',   value: stats.total },
-          { label: 'Done',    value: stats.done },
-          { label: 'Refused', value: stats.refused },
-          { label: 'Pending', value: stats.pending },
+          { label: 'Total',    value: stats.total },
+          { label: 'Approved', value: stats.done },
+          { label: 'Rejected', value: stats.refused },
+          { label: 'Pending',  value: stats.pending },
         ].map(s => (
           <div key={s.label} className="card p-3 text-center">
             <div className="text-xl font-bold" style={{ color: 'var(--text)' }}>{s.value}</div>
@@ -179,7 +196,7 @@ export default function MyList() {
           <div className="h-full progress-bar" style={{ width: `${stats.total?(stats.refused/stats.total)*100:0}%`, background: '#888' }} />
         </div>
         <div className="flex justify-between mt-1 text-xs" style={{ color: 'var(--text-3)' }}>
-          <span>{stats.done} done · {stats.refused} refused</span>
+          <span>{stats.done} approved · {stats.refused} rejected</span>
           <span>{stats.pending} remaining</span>
         </div>
         {lastRefresh && (
@@ -192,16 +209,16 @@ export default function MyList() {
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl anim-up anim-d2" style={{ background: 'var(--bg)' }}>
         {TABS.map(tab => {
-          const count = tab === 'All' ? stats.total : stats[tab.toLowerCase()];
+          const count = tab.key === 'all' ? stats.total : stats[tab.key];
           return (
-            <button key={tab} onClick={() => setActiveTab(tab)}
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className="flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all duration-200"
               style={{
-                background: activeTab === tab ? 'var(--surface)' : 'transparent',
-                color: activeTab === tab ? 'var(--text)' : 'var(--text-3)',
-                boxShadow: activeTab === tab ? 'var(--shadow-sm)' : 'none',
+                background: activeTab === tab.key ? 'var(--surface)' : 'transparent',
+                color: activeTab === tab.key ? 'var(--text)' : 'var(--text-3)',
+                boxShadow: activeTab === tab.key ? 'var(--shadow-sm)' : 'none',
               }}>
-              {tab} {count > 0 && <span className="ml-1 text-xs opacity-60">{count}</span>}
+              {tab.label} {count > 0 && <span className="ml-1 text-xs opacity-60">{count}</span>}
             </button>
           );
         })}
@@ -215,8 +232,8 @@ export default function MyList() {
         {filtered.length === 0 && (
           <div className="text-center py-14 anim-fade" style={{ color: 'var(--text-3)' }}>
             <CheckCircle size={32} className="mx-auto mb-3 opacity-20" />
-            <p className="font-semibold">No {activeTab.toLowerCase()} voters</p>
-            {activeTab === 'Pending' && <p className="text-sm mt-1">All voters have been visited.</p>}
+            <p className="font-semibold">No {activeTab === 'all' ? '' : TABS.find(t => t.key === activeTab)?.label.toLowerCase() + ' '}voters</p>
+            {activeTab === 'pending' && <p className="text-sm mt-1">All voters have been reviewed.</p>}
           </div>
         )}
       </div>

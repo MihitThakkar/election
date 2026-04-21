@@ -18,10 +18,12 @@ export function formatDateTime(date) {
 // ── Voter helpers ─────────────────────────────────────────────────────────────
 export const isEligible = (age) => age >= 18 && age <= 35;
 
+// DB enum values kept as ('pending','done','refused') — UI relabels them as
+// Pending / Approved / Rejected to match the team-review workflow.
 export const STATUS_CONFIG = {
-  done:    { label: 'Done',    badge: 'badge-green', borderClass: 'status-done',    bg: '' },
-  refused: { label: 'Refused', badge: 'badge-red',   borderClass: 'status-refused', bg: '' },
-  pending: { label: 'Pending', badge: 'badge-amber',  borderClass: 'status-pending', bg: '' },
+  done:    { label: 'Approved', badge: 'badge-green', borderClass: 'status-done',    bg: '' },
+  refused: { label: 'Rejected', badge: 'badge-red',   borderClass: 'status-refused', bg: '' },
+  pending: { label: 'Pending',  badge: 'badge-amber', borderClass: 'status-pending', bg: '' },
 };
 
 export function voterStatusLabel(status) {
