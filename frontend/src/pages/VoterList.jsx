@@ -8,6 +8,30 @@ import { useAuth } from '../context/AuthContext';
 
 const roleLabels = { super_admin: 'Super Admin', team_lead: 'Team Lead', field_worker: 'Field Worker' };
 
+/**
+ * BFS the user graph by parent_id to return every descendant id of `rootId`.
+ * `rootId` itself is NOT included. Safe against cycles (visited set).
+ */
+function descendantIdsOf(rootId, users) {
+  const childrenByParent = new Map();
+  for (const u of users) {
+    if (u.parent_id == null) continue;
+    if (!childrenByParent.has(u.parent_id)) childrenByParent.set(u.parent_id, []);
+    childrenByParent.get(u.parent_id).push(u.id);
+  }
+  const out = new Set();
+  const queue = [rootId];
+  while (queue.length) {
+    const id = queue.shift();
+    for (const childId of (childrenByParent.get(id) || [])) {
+      if (out.has(childId)) continue;
+      out.add(childId);
+      queue.push(childId);
+    }
+  }
+  return out;
+}
+
 /** Tap-to-approve / reject icon group (reused per table row). */
 function StatusActions({ voter, updating, onChange }) {
   const btn = (status, Icon, title, dark) => (
@@ -58,13 +82,15 @@ function AssignPanel({ count, teamMembers, currentUser, onAssign, onClose }) {
   const [selectedFW, setSelectedFW] = useState(null);
   const [saving, setSaving]       = useState(false);
 
-  // Field workers whose parent is the selected team lead
+  // Field workers under the selected team lead.
+  // - For super_admin: only direct children of the chosen TL.
+  // - For team_lead viewing own team: every FW in the already hierarchy-scoped list.
   const workersForTL = useMemo(() => {
     if (!selectedTL) return [];
-    return teamMembers.filter(
-      m => m.role === 'field_worker' && m.parent_id === selectedTL.id
-    );
-  }, [teamMembers, selectedTL]);
+    const fws = teamMembers.filter(m => m.role === 'field_worker');
+    if (isSuperAdmin) return fws.filter(m => m.parent_id === selectedTL.id);
+    return fws;
+  }, [teamMembers, selectedTL, isSuperAdmin]);
 
   const assignee      = selectedFW ?? selectedTL;
   const assigneeRole  = selectedFW ? 'Field Worker' : (isSuperAdmin ? 'Team Lead' : null);
@@ -310,11 +336,14 @@ function AssignPanel({ count, teamMembers, currentUser, onAssign, onClose }) {
 
 export default function VoterList() {
   const { user: currentUser } = useAuth();
+  const isSuperAdmin  = currentUser?.role === 'super_admin';
+  const isTeamLead    = currentUser?.role === 'team_lead';
+  const isFieldWorker = currentUser?.role === 'field_worker';
   const [voters, setVoters]   = useState([]);
   const [total, setTotal]     = useState(0);
   const [pages, setPages]     = useState(1);
   const [loading, setLoading] = useState(true);
-  const [teamMembers, setTeamMembers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   // Default: eligible (age 18-35) filter is ON
   const [filters, setFilters] = useState({ status: '', assigned_to: '', eligible: true });
   const [updating, setUpdating] = useState(null);
@@ -331,6 +360,22 @@ export default function VoterList() {
   const [subSection, setSubSection]   = useState('');
 
   const setFilter = (k, v) => { setFilters(f => ({ ...f, [k]: v })); setPage(1); setSelected([]); };
+
+  /**
+   * teamMembers — assignees visible to the current user.
+   * - super_admin: every team_lead + field_worker.
+   * - team_lead: descendants only (sub-TLs + their FWs), using parent_id BFS.
+   * - field_worker: empty (field workers don't use this filter / can't assign).
+   */
+  const teamMembers = useMemo(() => {
+    const base = allUsers.filter(u => ['team_lead', 'field_worker'].includes(u.role));
+    if (isSuperAdmin) return base;
+    if (isTeamLead && currentUser?.id) {
+      const allowed = descendantIdsOf(currentUser.id, allUsers);
+      return base.filter(u => allowed.has(u.id));
+    }
+    return [];
+  }, [allUsers, currentUser, isSuperAdmin, isTeamLead]);
 
   // Derived: part_numbers for the currently selected partName
   const selectedPartEntry = partsData.find(p => p.part_name === partName);
@@ -378,8 +423,7 @@ export default function VoterList() {
   useEffect(() => {
     // Fetch team members and parts separately to avoid one failure blocking both
     api.get('/users').then(u => {
-      const members = (u.data.data || []).filter(m => ['team_lead', 'field_worker'].includes(m.role));
-      setTeamMembers(members);
+      setAllUsers(u.data.data || []);
     }).catch(err => console.error('Failed to load users:', err));
 
     api.get('/parts').then(p => {
@@ -473,10 +517,12 @@ export default function VoterList() {
             <option value="">All Statuses</option>
             {Object.entries(STATUS_CONFIG).map(([val, cfg]) => <option key={val} value={val}>{cfg.label}</option>)}
           </select>
-          <select className="input text-sm" value={filters.assigned_to} onChange={e => setFilter('assigned_to', e.target.value)}>
-            <option value="">All Team Members</option>
-            {teamMembers.map(w => <option key={w.id} value={w.id}>{w.name} ({roleLabels[w.role]})</option>)}
-          </select>
+          {!isFieldWorker && (
+            <select className="input text-sm" value={filters.assigned_to} onChange={e => setFilter('assigned_to', e.target.value)}>
+              <option value="">{isTeamLead ? 'All My Team' : 'All Team Members'}</option>
+              {teamMembers.map(w => <option key={w.id} value={w.id}>{w.name} ({roleLabels[w.role]})</option>)}
+            </select>
+          )}
           {(partNumber || partName) && subSections.length > 0 && (
             <select className="input text-sm" value={subSection}
               onChange={e => { setSubSection(e.target.value); setPage(1); setSelected([]); }}
