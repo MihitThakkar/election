@@ -193,6 +193,7 @@ export default function VoterList() {
   const handlePartNameChange = (value) => {
     setPartName(value);
     setPartNumber('');
+    setSubSection('');
     setPage(1);
     setSelected([]);
 
@@ -207,6 +208,7 @@ export default function VoterList() {
 
   const handlePartNumberChange = (value) => {
     setPartNumber(value);
+    setSubSection('');
     setPage(1);
     setSelected([]);
   };
@@ -236,11 +238,18 @@ export default function VoterList() {
     api.get('/parts').then(p => {
       setPartsData(p.data.data || []);
     }).catch(err => console.error('Failed to load parts:', err));
-
-    api.get('/voters/sub-sections').then(r => {
-      setSubSections(r.data.data || []);
-    }).catch(err => console.error('Failed to load sub-sections:', err));
   }, []);
+
+  // Load sub-sections only once a part (number or name) is chosen.
+  useEffect(() => {
+    if (!partNumber && !partName) { setSubSections([]); setSubSection(''); return; }
+    const params = {};
+    if (partNumber) params.part_number = partNumber;
+    else if (partName) params.part_name = partName;
+    api.get('/voters/sub-sections', { params })
+      .then(r => setSubSections(r.data.data || []))
+      .catch(err => { console.error('Failed to load sub-sections:', err); setSubSections([]); });
+  }, [partNumber, partName]);
 
   const toggleSelect = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const selectAll    = () => setSelected(voters.filter(v => !v.assigned_to).map(v => v.id));
@@ -321,13 +330,14 @@ export default function VoterList() {
             <option value="">All Team Members</option>
             {teamMembers.map(w => <option key={w.id} value={w.id}>{w.name} ({roleLabels[w.role]})</option>)}
           </select>
-          <select className="input text-sm" value={subSection}
-            onChange={e => { setSubSection(e.target.value); setPage(1); setSelected([]); }}
-            disabled={subSections.length === 0}
-            title={subSections.length === 0 ? 'No sub-sections available' : 'Filter by sub-section'}>
-            <option value="">All Sub-sections</option>
-            {subSections.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          {(partNumber || partName) && subSections.length > 0 && (
+            <select className="input text-sm" value={subSection}
+              onChange={e => { setSubSection(e.target.value); setPage(1); setSelected([]); }}
+              title="Filter by sub-section">
+              <option value="">All Sub-sections</option>
+              {subSections.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
           <label className="flex items-center gap-2 cursor-pointer px-3 py-2.5 rounded-lg border transition-all hover:border-black"
             style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
             <input type="checkbox" checked={filters.eligible}

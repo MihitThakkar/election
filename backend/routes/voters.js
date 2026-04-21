@@ -158,13 +158,20 @@ router.get('/sub-sections', authenticateToken, async (req, res, next) => {
     const teamIds = await getTeamUserIds(req.user);
     const scope = voterAssignmentScope(teamIds);
 
+    const where = [scope.where, 'v.sub_section IS NOT NULL', "v.sub_section != ''"];
+    const params = [...scope.params];
+    if (req.query.part_number) {
+      where.push('v.part_number = ?');
+      params.push(parseInt(req.query.part_number));
+    }
+    if (req.query.part_name) {
+      where.push('v.part_number IN (SELECT part_number FROM parts WHERE part_name = ?)');
+      params.push(req.query.part_name);
+    }
+
     const rows = await db.query(
-      `SELECT DISTINCT v.sub_section
-         FROM voters v
-        WHERE ${scope.where}
-          AND v.sub_section IS NOT NULL
-          AND v.sub_section != ''`,
-      scope.params
+      `SELECT DISTINCT v.sub_section FROM voters v WHERE ${where.join(' AND ')}`,
+      params
     );
 
     const tokens = new Map(); // token → count placeholder (kept for ordering stability)
