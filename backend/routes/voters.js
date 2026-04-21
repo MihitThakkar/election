@@ -240,7 +240,11 @@ router.put('/:id/status', authenticateToken, async (req, res, next) => {
       }
     }
 
-    const now      = status !== 'pending' ? new Date().toISOString() : null;
+    // MySQL DATETIME rejects ISO-8601 ("2026-04-21T14:19:44.192Z"). Format as
+    // "YYYY-MM-DD HH:MM:SS" (UTC) so it inserts cleanly.
+    const now      = status !== 'pending'
+      ? new Date().toISOString().slice(0, 19).replace('T', ' ')
+      : null;
     const markedBy = status !== 'pending' ? req.user.id : null;
 
     await db.run(
