@@ -295,13 +295,20 @@ router.post('/upload', authenticateToken, requireAdmin, upload.single('file'), a
     }
 
     const colMap = {
-      name:        ['name', 'voter_name', 'full_name', 'नाम', 'Name', 'VOTER NAME'],
-      age:         ['age', 'उम्र', 'आयु', 'Age', 'AGE'],
-      voter_id:    ['voter_id', 'epic', 'voter_card_no', 'epic_no', 'Voter ID', 'VOTER ID', 'EPIC No'],
-      father_name: ['father_name', 'father', 'guardian', 'husband_name', 'Father Name', 'FATHER NAME'],
-      phone:       ['phone', 'mobile', 'contact', 'Phone', 'PHONE', 'Mobile'],
-      address:     ['address', 'house', 'पता', 'Address', 'ADDRESS'],
-      gender:      ['gender', 'sex', 'लिंग', 'Gender', 'GENDER'],
+      name:           ['name', 'voter_name', 'full_name', 'hindi_name', 'नाम', 'Name', 'VOTER NAME'],
+      age:            ['age', 'उम्र', 'आयु', 'Age', 'AGE'],
+      voter_id:       ['voter_id', 'epic', 'voter_card_no', 'epic_no', 'Voter ID', 'VOTER ID', 'EPIC No'],
+      father_name:    ['father_name', 'father', 'guardian', 'husband_name', 'husband', 'Father Name', 'FATHER NAME'],
+      phone:          ['phone', 'mobile', 'contact', 'Phone', 'PHONE', 'Mobile'],
+      address:        ['address', 'पता', 'Address', 'ADDRESS'],
+      gender:         ['gender', 'sex', 'लिंग', 'Gender', 'GENDER'],
+      sr_no:          ['sr_no', 'serial_no', 'sno', 'Sr No', 'SR NO'],
+      house_no:       ['house_no', 'house', 'House No', 'HOUSE NO'],
+      relation_type:  ['relation_type', 'relation', 'Relation'],
+      epic_confidence:['epic_confidence', 'confidence'],
+      state_code:     ['state_code', 'State Code'],
+      constituency_no:['constituency_no', 'constituency', 'Constituency No'],
+      part_no:        ['part_no', 'part_number', 'Part No', 'PART NO'],
     };
 
     function findCol(row, keys) {
@@ -314,7 +321,7 @@ router.post('/upload', authenticateToken, requireAdmin, upload.single('file'), a
     }
 
     const areaId = req.body.area_id ? parseInt(req.body.area_id) : null;
-    const partNumber = req.body.part_number ? parseInt(req.body.part_number) : null;
+    const bodyPartNumber = req.body.part_number ? parseInt(req.body.part_number) : null;
     let imported = 0, skipped = 0, eligible = 0;
 
     await db.transaction(async (conn) => {
@@ -331,12 +338,31 @@ router.post('/upload', authenticateToken, requireAdmin, upload.single('file'), a
         const gender     = ['M','MALE','पु'].includes(genderRaw) ? 'M'
                          : ['F','FEMALE','म'].includes(genderRaw) ? 'F' : null;
 
+        const srNoRaw         = findCol(row, colMap.sr_no);
+        const sr_no           = srNoRaw !== null && srNoRaw !== '' ? parseInt(srNoRaw) || null : null;
+        const house_no        = String(findCol(row, colMap.house_no)        || '').trim() || null;
+        const relation_type   = String(findCol(row, colMap.relation_type)   || '').trim() || null;
+        const epicConfRaw     = findCol(row, colMap.epic_confidence);
+        const epic_confidence = epicConfRaw !== null && epicConfRaw !== '' ? parseFloat(epicConfRaw) || null : null;
+        const state_code      = String(findCol(row, colMap.state_code)      || '').trim() || null;
+        const constRaw        = findCol(row, colMap.constituency_no);
+        const constituency_no = constRaw !== null && constRaw !== '' ? parseInt(constRaw) || null : null;
+        const rowPartRaw      = findCol(row, colMap.part_no);
+        const rowPartNumber   = rowPartRaw !== null && rowPartRaw !== '' ? parseInt(rowPartRaw) || null : null;
+        const partNumber      = rowPartNumber ?? bodyPartNumber;
+
         // Store name as-given (Hindi or Latin) — matches existing rows
         const storedName = String(name).trim();
 
         const [result] = await conn.execute(
-          'INSERT IGNORE INTO voters (name, age, voter_id, father_name, phone, address, gender, area_id, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [storedName, age, voter_id, father_name, phone, address, gender, areaId, partNumber]
+          `INSERT IGNORE INTO voters
+             (name, age, voter_id, father_name, phone, address, gender,
+              area_id, part_number, sr_no, house_no, relation_type,
+              epic_confidence, state_code, constituency_no)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [storedName, age, voter_id, father_name, phone, address, gender,
+           areaId, partNumber, sr_no, house_no, relation_type,
+           epic_confidence, state_code, constituency_no]
         );
         if (result.affectedRows > 0) {
           imported++;
