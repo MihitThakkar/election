@@ -179,6 +179,9 @@ export default function VoterList() {
   const [partsData, setPartsData]     = useState([]);
   const [partName, setPartName]       = useState('');
   const [partNumber, setPartNumber]   = useState('');
+  // Sub-section filter
+  const [subSections, setSubSections] = useState([]);
+  const [subSection, setSubSection]   = useState('');
 
   const setFilter = (k, v) => { setFilters(f => ({ ...f, [k]: v })); setPage(1); setSelected([]); };
 
@@ -216,10 +219,11 @@ export default function VoterList() {
     if (filters.eligible)   params.eligible    = true;
     if (partName)           params.part_name   = partName;
     if (partNumber)         params.part_number = partNumber;
+    if (subSection)         params.sub_section = subSection;
     const res = await api.get('/voters', { params });
     setVoters(res.data.data); setTotal(res.data.total); setPages(res.data.pages);
     setLoading(false);
-  }, [filters, page, partName, partNumber]);
+  }, [filters, page, partName, partNumber, subSection]);
 
   useEffect(() => { fetchVoters(); }, [fetchVoters]);
   useEffect(() => {
@@ -232,6 +236,10 @@ export default function VoterList() {
     api.get('/parts').then(p => {
       setPartsData(p.data.data || []);
     }).catch(err => console.error('Failed to load parts:', err));
+
+    api.get('/voters/sub-sections').then(r => {
+      setSubSections(r.data.data || []);
+    }).catch(err => console.error('Failed to load sub-sections:', err));
   }, []);
 
   const toggleSelect = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
@@ -254,12 +262,13 @@ export default function VoterList() {
     }
   };
 
-  const hasFilters = filters.status || filters.assigned_to || filters.eligible || partName;
+  const hasFilters = filters.status || filters.assigned_to || filters.eligible || partName || subSection;
 
   const clearAllFilters = () => {
     setFilters({ status: '', assigned_to: '', eligible: false });
     setPartName('');
     setPartNumber('');
+    setSubSection('');
     setPage(1);
     setSelected([]);
   };
@@ -311,6 +320,13 @@ export default function VoterList() {
           <select className="input text-sm" value={filters.assigned_to} onChange={e => setFilter('assigned_to', e.target.value)}>
             <option value="">All Team Members</option>
             {teamMembers.map(w => <option key={w.id} value={w.id}>{w.name} ({roleLabels[w.role]})</option>)}
+          </select>
+          <select className="input text-sm" value={subSection}
+            onChange={e => { setSubSection(e.target.value); setPage(1); setSelected([]); }}
+            disabled={subSections.length === 0}
+            title={subSections.length === 0 ? 'No sub-sections available' : 'Filter by sub-section'}>
+            <option value="">All Sub-sections</option>
+            {subSections.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <label className="flex items-center gap-2 cursor-pointer px-3 py-2.5 rounded-lg border transition-all hover:border-black"
             style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>

@@ -123,6 +123,12 @@ router.get('/', authenticateToken, async (req, res, next) => {
       where.push('v.part_number IN (SELECT part_number FROM parts WHERE part_name = ?)');
       params.push(req.query.part_name);
     }
+    // Sub-section filter (stored as concatenated string per voter, e.g.
+    // "1-पिनारे का मोहल्ला,कानोड वाई 15, 2-नई बावड़ी,…") — match with LIKE.
+    if (req.query.sub_section) {
+      where.push('v.sub_section LIKE ?');
+      params.push(`%${req.query.sub_section}%`);
+    }
 
     const whereStr = where.join(' AND ');
     const total = await db.get(`SELECT COUNT(*) as count FROM voters v WHERE ${whereStr}`, params);
@@ -139,6 +145,42 @@ router.get('/', authenticateToken, async (req, res, next) => {
       limit: parseInt(limit),
       pages: Math.ceil(total.count / parseInt(limit)),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/voters/sub-sections → distinct sub-section tokens within the caller's scope.
+// Splits the stored string on ", <digit>-" so each token like "1-पिनारे का मोहल्ला,कानोड वाई 15"
+// stays intact even though it contains internal commas.
+router.get('/sub-sections', authenticateToken, async (req, res, next) => {
+  try {
+    const teamIds = await getTeamUserIds(req.user);
+    const scope = voterAssignmentScope(teamIds);
+
+    const rows = await db.query(
+      `SELECT DISTINCT v.sub_section
+         FROM voters v
+        WHERE ${scope.where}
+          AND v.sub_section IS NOT NULL
+          AND v.sub_section != ''`,
+      scope.params
+    );
+
+    const tokens = new Map(); // token → count placeholder (kept for ordering stability)
+    const splitRe = /,\s*(?=\d+-)/;
+    for (const r of rows) {
+      const parts = String(r.sub_section).split(splitRe).map(s => s.trim()).filter(Boolean);
+      for (const p of parts) tokens.set(p, (tokens.get(p) || 0) + 1);
+    }
+
+    const data = Array.from(tokens.keys()).sort((a, b) => {
+      const na = parseInt(a); const nb = parseInt(b);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return a.localeCompare(b);
+    });
+
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
