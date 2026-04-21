@@ -331,14 +331,12 @@ router.post('/upload', authenticateToken, requireAdmin, upload.single('file'), a
         const gender     = ['M','MALE','पु'].includes(genderRaw) ? 'M'
                          : ['F','FEMALE','म'].includes(genderRaw) ? 'F' : null;
 
-        // If name is in Devanagari, store Hindi original and transliterate for English name
-        const rawName = String(name).trim();
-        const storedName      = isDevanagari(rawName) ? devanagariToLatin(rawName) : rawName;
-        const storedNameHindi = isDevanagari(rawName) ? rawName : null;
+        // Store name as-given (Hindi or Latin) — matches existing rows
+        const storedName = String(name).trim();
 
         const [result] = await conn.execute(
-          'INSERT IGNORE INTO voters (name, name_hindi, age, voter_id, father_name, phone, address, gender, area_id, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [storedName, storedNameHindi, age, voter_id, father_name, phone, address, gender, areaId, partNumber]
+          'INSERT IGNORE INTO voters (name, age, voter_id, father_name, phone, address, gender, area_id, part_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [storedName, age, voter_id, father_name, phone, address, gender, areaId, partNumber]
         );
         if (result.affectedRows > 0) {
           imported++;
