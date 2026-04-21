@@ -193,6 +193,10 @@ async function initDatabase() {
   await safeAlter('ALTER TABLE users ADD COLUMN part_numbers VARCHAR(500)');
   await safeAlter("ALTER TABLE users MODIFY COLUMN role ENUM('super_admin', 'team_lead', 'field_worker') NOT NULL");
   await safeAlter("UPDATE users SET role = 'field_worker' WHERE role = 'sub_worker'");
+  await safeAlter("ALTER TABLE parts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'");
+  await safeAlter("CREATE INDEX idx_parts_status ON parts(status)");
+  await safeAlter("ALTER TABLE parts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'");
+  await safeAlter("CREATE INDEX idx_parts_status ON parts(status)");
 
   console.log('Database tables initialized');
 }

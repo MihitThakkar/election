@@ -3,14 +3,20 @@ const router = express.Router();
 const { db } = require('../db');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
-// GET /api/parts - List all parts, grouped by part_name
+// GET /api/parts - List ACTIVE parts grouped by part_name (used by voter-list filters).
 // Returns: { success: true, data: [...] }
 // Each item: { part_name, part_numbers: [1,2,3], count: 3 }
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const parts = await db.query(
-      'SELECT part_name, GROUP_CONCAT(part_number ORDER BY part_number) as part_numbers, COUNT(*) as count FROM parts GROUP BY part_name ORDER BY part_name'
-    );
+    const parts = await db.query(`
+      SELECT part_name,
+             GROUP_CONCAT(part_number ORDER BY part_number) as part_numbers,
+             COUNT(*) as count
+      FROM parts
+      WHERE status = 'ACTIVE'
+      GROUP BY part_name
+      ORDER BY part_name
+    `);
     const data = parts.map(p => ({
       part_name: p.part_name,
       part_numbers: p.part_numbers.split(',').map(Number),
