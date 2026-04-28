@@ -195,8 +195,30 @@ async function initDatabase() {
   await safeAlter("UPDATE users SET role = 'field_worker' WHERE role = 'sub_worker'");
   await safeAlter("ALTER TABLE parts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'");
   await safeAlter("CREATE INDEX idx_parts_status ON parts(status)");
-  await safeAlter("ALTER TABLE parts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'");
-  await safeAlter("CREATE INDEX idx_parts_status ON parts(status)");
+
+  // ── Columns produced by vision_pdf_parser_4.py ──────────────────────────
+  // Dates stored as VARCHAR because the parser emits dd-mm-yyyy strings,
+  // which MySQL DATE columns won't accept without conversion.
+  await safeAlter('ALTER TABLE voters ADD COLUMN sr_no INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN house_no VARCHAR(100) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN relation_type VARCHAR(10) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN epic_confidence FLOAT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN state_code VARCHAR(10) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN constituency_no INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN constituency_name VARCHAR(255) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN part_no INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN part_name VARCHAR(255) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN sub_section_no INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN sub_section VARCHAR(255) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN qualifying_date VARCHAR(20) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN publication_date VARCHAR(20) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN total_pages INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN page_no INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN roll_type VARCHAR(20) DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN roll_year INT DEFAULT NULL');
+  await safeAlter('ALTER TABLE voters ADD COLUMN source_pdf VARCHAR(500) DEFAULT NULL');
+  await safeAlter('CREATE INDEX idx_voters_part_no ON voters(part_no)');
+  await safeAlter('CREATE INDEX idx_voters_voter_id ON voters(voter_id)');
 
   console.log('Database tables initialized');
 }
