@@ -132,17 +132,63 @@ def validate_epic(raw: str):
 # ---------------------------------------------------------------------------
 
 class VisionOCR:
-    def __init__(self):
-        self.client = vision.ImageAnnotatorClient()
+    def __init__(self, cache_dir: str = None):
+        # Lazy client init so cache-only mode (re-runs without API creds) works.
+        self._client = None
         self._call_count = 0
+        self._cache_hits = 0
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        if self.cache_dir:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = vision.ImageAnnotatorClient()
+        return self._client
 
     def _png_bytes(self, pil_image: Image.Image) -> bytes:
         buf = io.BytesIO()
         pil_image.save(buf, format='PNG')
         return buf.getvalue()
 
-    def document_ocr(self, pil_image: Image.Image):
-        """Return (full_text, words[]). Each word is dict with 'text','x','y','w','h'."""
+    def _cache_path(self, pdf_stem: str, page_num: int) -> Path:
+        return self.cache_dir / f'{pdf_stem}__p{page_num:04d}.json'
+
+    def _load_cached(self, pdf_stem: str, page_num: int):
+        if not self.cache_dir:
+            return None
+        cp = self._cache_path(pdf_stem, page_num)
+        if not cp.exists():
+            return None
+        try:
+            data = json.loads(cp.read_text(encoding='utf-8'))
+            return data['full_text'], data['words']
+        except Exception:
+            return None
+
+    def _save_cache(self, pdf_stem: str, page_num: int, full_text, words):
+        if not self.cache_dir:
+            return
+        cp = self._cache_path(pdf_stem, page_num)
+        try:
+            cp.write_text(
+                json.dumps({'full_text': full_text, 'words': words},
+                           ensure_ascii=False),
+                encoding='utf-8')
+        except Exception as e:
+            print(f'  cache write failed: {e}', file=sys.stderr)
+
+    def document_ocr(self, pil_image: Image.Image, pdf_stem: str = None,
+                     page_num: int = None):
+        """Return (full_text, words[]). Caches per (pdf_stem, page_num) if
+        a cache_dir is configured, so re-runs cost zero API calls."""
+        if pdf_stem is not None and page_num is not None:
+            cached = self._load_cached(pdf_stem, page_num)
+            if cached is not None:
+                self._cache_hits += 1
+                return cached
+
         image = vision.Image(content=self._png_bytes(pil_image))
         ctx = vision.ImageContext(language_hints=['hi', 'en'])
         resp = self.client.document_text_detection(image=image, image_context=ctx)
@@ -151,6 +197,7 @@ class VisionOCR:
             raise Exception(f'Vision API error: {resp.error.message}')
 
         if not resp.full_text_annotation or not resp.full_text_annotation.pages:
+            self._save_cache(pdf_stem, page_num, '', [])
             return '', []
 
         full_text = resp.full_text_annotation.text
@@ -169,6 +216,8 @@ class VisionOCR:
                             'text': text, 'x': x, 'y': y, 'w': w, 'h': h,
                             'cx': x + w / 2, 'cy': y + h / 2,
                         })
+        if pdf_stem is not None and page_num is not None:
+            self._save_cache(pdf_stem, page_num, full_text, words)
         return full_text, words
 
     def text_ocr(self, pil_image: Image.Image) -> str:
@@ -266,33 +315,74 @@ def parse_header(text: str) -> dict:
 # Footer record-count parser
 # ---------------------------------------------------------------------------
 
+_DEV_DIGIT_MAP = str.maketrans('०१२३४५६७८९', '0123456789')
+
+def _to_ascii_digits(s: str) -> str:
+    return s.translate(_DEV_DIGIT_MAP)
+
+
 def parse_page_footer_total(text: str):
     """Return the declared total record count on a page, or None.
 
-    Footer formats observed:
+    Footer formats observed (the colon, the order, and OCR spacing all vary):
       'इस पृष्ठ का कुल योग : 30'
       'पुरुष : 14  महिला : 16  अन्य : 0  कुल : 30'
       'पुरुष: 14 महिला: 16 कुल: 30'
+      'पुरुष  महिला  कुल   14   16   30'   (OCR sometimes splits headers/values)
       'Total : 30'
+
+    OCR mangling we tolerate:
+      - Devanagari digits (०१२...)
+      - Missing/extra colons or dashes
+      - Newlines mid-pattern (re.DOTALL)
+      - Words like 'योग' broken or merged
     """
-    # Sum form: man+woman[+other] = total -> validate
+    if not text:
+        return None
+    # Normalise: convert Devanagari digits to ASCII so a single regex set works.
+    t = _to_ascii_digits(text)
+
+    # Sum form: man+woman[+other] = total -> use total
     m = re.search(
-        r'पुरुष\s*[:：]\s*(\d{1,4}).{0,40}?महिला\s*[:：]\s*(\d{1,4})'
-        r'(?:.{0,40}?(?:अन्य|थर्ड)\s*[:：]\s*(\d{1,4}))?'
-        r'.{0,40}?कुल\s*[:：]\s*(\d{1,4})',
-        text, re.DOTALL)
+        r'पुरुष[\s:：\-]*(\d{1,4})[\s\S]{0,60}?'
+        r'महिला[\s:：\-]*(\d{1,4})'
+        r'(?:[\s\S]{0,60}?(?:अन्य|थर्ड|other)[\s:：\-]*(\d{1,4}))?'
+        r'[\s\S]{0,60}?कुल[\s:：\-]*(\d{1,4})',
+        t, re.IGNORECASE)
     if m:
         try: return int(m.group(4))
         except ValueError: pass
 
-    # "कुल योग" / "कुल"
-    m = re.search(r'(?:इस\s*पृष्ठ\s*का\s*)?कुल(?:\s*योग)?\s*[:：\-]+\s*(\d{1,4})', text)
+    # Header-then-values form (4 cols): "पुरुष महिला अन्य कुल\n14 16 0 30"
+    m = re.search(
+        r'पुरुष[\s\S]{0,40}?महिला[\s\S]{0,40}?(?:अन्य|थर्ड|other)[\s\S]{0,40}?'
+        r'कुल[\s\S]{0,80}?'
+        r'(\d{1,4})\D{1,15}(\d{1,4})\D{1,15}(\d{1,4})\D{1,15}(\d{1,4})',
+        t, re.IGNORECASE)
+    if m:
+        try: return int(m.group(4))
+        except ValueError: pass
+
+    # Header-then-values form (3 cols): "पुरुष महिला कुल\n14 16 30"
+    m = re.search(
+        r'पुरुष[\s\S]{0,40}?महिला[\s\S]{0,40}?कुल[\s\S]{0,80}?'
+        r'(\d{1,4})\D{1,15}(\d{1,4})\D{1,15}(\d{1,4})',
+        t)
+    if m:
+        try: return int(m.group(3))
+        except ValueError: pass
+
+    # "इस पृष्ठ का कुल योग ..." with very loose separators
+    m = re.search(
+        r'(?:इस[\s\S]{0,15}?पृष्ठ[\s\S]{0,15}?का[\s\S]{0,15}?)?'
+        r'कुल[\s\S]{0,15}?(?:योग)?[\s:：\-]*(\d{1,4})',
+        t)
     if m:
         try: return int(m.group(1))
         except ValueError: pass
 
     # English fallback
-    m = re.search(r'Total\s*(?:Electors)?\s*[:：]?\s*(\d{1,4})', text, re.IGNORECASE)
+    m = re.search(r'Total\s*(?:Electors)?\s*[:：]?\s*(\d{1,4})', t, re.IGNORECASE)
     if m:
         try: return int(m.group(1))
         except ValueError: pass
@@ -556,9 +646,11 @@ def parse_pdf_filename(filepath: str) -> dict:
 # Main per-page pipeline
 # ---------------------------------------------------------------------------
 
-def process_page(image: Image.Image, ocr: VisionOCR, page_num: int):
+def process_page(image: Image.Image, ocr: VisionOCR, page_num: int,
+                 pdf_stem: str = None):
     """Returns dict with extracted voters and verification stats for one page."""
-    full_text, words = ocr.document_ocr(image)
+    full_text, words = ocr.document_ocr(image, pdf_stem=pdf_stem,
+                                        page_num=page_num)
     page_w, page_h = image.size
 
     if is_summary_page(full_text):
@@ -597,6 +689,7 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
                 retry_dpi: int = 400, retry_threshold: int = 2,
                 verbose: bool = True):
     pdf_name = Path(pdf_path).name
+    pdf_stem = Path(pdf_path).stem
     file_meta = parse_pdf_filename(pdf_path)
 
     if verbose:
@@ -631,7 +724,7 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
                   end='', flush=True)
 
         try:
-            result = process_page(image, ocr, idx)
+            result = process_page(image, ocr, idx, pdf_stem=pdf_stem)
         except Exception as e:
             if verbose:
                 print(f"OCR error: {e}", file=sys.stderr)
@@ -676,7 +769,9 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
                 bigger = convert_from_path(pdf_path, dpi=retry_dpi,
                                            first_page=idx, last_page=idx)
                 if bigger:
-                    retry_result = process_page(bigger[0], ocr, idx)
+                    # Use a distinct stem suffix so retry caches separately
+                    retry_result = process_page(bigger[0], ocr, idx,
+                                                pdf_stem=f'{pdf_stem}__retry')
                     if retry_result['extracted'] > extracted:
                         result = retry_result
                         extracted = result['extracted']
@@ -716,6 +811,7 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
             'extracted': extracted,
             'status': status,
             'detail': '',
+            'full_text': result.get('full_text', ''),
         })
 
         if verbose:
@@ -809,6 +905,43 @@ def write_summary(out_csv: Path, run: dict):
             lines.append(f'  low (<0.9)      : {low}/{len(epic_voters)}')
     summary_path.write_text('\n'.join(lines), encoding='utf-8')
     return summary_path
+
+
+def write_footer_debug(out_csv: Path, run: dict):
+    """For each page where footer parsing failed, dump the bottom 800 chars
+    of OCR text. Lets us iterate the footer regex without spending API money.
+    """
+    debug_path = out_csv.with_suffix('.footer_debug.txt')
+    pages = run.get('page_stats', [])
+    bad = [p for p in pages if p.get('status') == 'NO_FOOTER' and p.get('full_text')]
+    if not bad:
+        # Still write something so the user knows the file exists
+        debug_path.write_text('No NO_FOOTER pages — all footers parsed.\n',
+                              encoding='utf-8')
+        return debug_path
+    parts = [f'Footer-parse failures for {run.get("pdf_name", "")}',
+             '=' * 64, '']
+    for p in bad:
+        text = p.get('full_text', '') or ''
+        tail = text[-800:] if len(text) > 800 else text
+        parts.append(f'--- PAGE {p["page_no"]:>3} (extracted {p["extracted"]}) ---')
+        parts.append(tail)
+        parts.append('')
+    debug_path.write_text('\n'.join(parts), encoding='utf-8')
+    return debug_path
+
+
+def write_full_text(out_csv: Path, run: dict):
+    """Dump entire OCR text of every page. Big file — opt-in via --debug-text."""
+    fp = out_csv.with_suffix('.fulltext.txt')
+    parts = []
+    for p in run.get('page_stats', []):
+        parts.append(f'\n=== PAGE {p["page_no"]} '
+                     f'(expected={p.get("expected")} extracted={p["extracted"]} '
+                     f'status={p.get("status")}) ===\n')
+        parts.append(p.get('full_text', '') or '(no text)')
+    fp.write_text('\n'.join(parts), encoding='utf-8')
+    return fp
 
 
 # ---------------------------------------------------------------------------
@@ -978,15 +1111,24 @@ def main():
     p.add_argument('--retry-dpi', type=int, default=400)
     p.add_argument('--retry-threshold', type=int, default=2,
                    help='re-OCR a page at higher DPI if expected-extracted >= this')
+    p.add_argument('--cache-dir', default='.ocr_cache',
+                   help='directory to cache OCR results per page (zero re-OCR cost)')
+    p.add_argument('--no-cache', action='store_true',
+                   help='disable OCR cache (every page hits the API)')
+    p.add_argument('--debug-text', action='store_true',
+                   help='write per-page full OCR text to {out}.fulltext.txt')
     p.add_argument('--quiet', action='store_true')
     args = p.parse_args()
 
-    if not os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
-        print("ERROR: set GOOGLE_APPLICATION_CREDENTIALS", file=sys.stderr)
-        sys.exit(1)
+    cache_dir = None if args.no_cache else args.cache_dir
+    # API creds only required if we may need to actually call OCR.
+    # When the cache is fully populated, re-runs work without creds.
+    if not args.no_cache and not os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+        print("WARN: GOOGLE_APPLICATION_CREDENTIALS not set — only cached pages will work",
+              file=sys.stderr)
 
     verbose = not args.quiet
-    ocr = VisionOCR()
+    ocr = VisionOCR(cache_dir=cache_dir)
     t0 = time.time()
 
     path = Path(args.path)
@@ -1027,13 +1169,17 @@ def main():
         out_csv.write_text(text, encoding='utf-8')
         write_verify(out_csv, r)
         write_summary(out_csv, r)
+        write_footer_debug(out_csv, r)
+        if args.debug_text:
+            write_full_text(out_csv, r)
         if verbose:
             print(f"\n  → {out_csv} ({len(r['voters'])} rows)", file=sys.stderr)
 
     if verbose:
         total_voters = sum(len(r['voters']) for r in runs)
         print(f"\nTime: {elapsed:.1f}s", file=sys.stderr)
-        print(f"Vision API calls: {ocr.call_count}", file=sys.stderr)
+        print(f"Vision API calls: {ocr.call_count}  (cache hits: {ocr._cache_hits})",
+              file=sys.stderr)
         print(f"Total rows: {total_voters}", file=sys.stderr)
         print(f"Estimated cost: ${ocr.call_count * 0.0015:.3f}", file=sys.stderr)
 
