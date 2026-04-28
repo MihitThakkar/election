@@ -7,6 +7,7 @@ const fs = require('fs');
 const { db } = require('../db');
 const { authenticateToken, requireAdmin, requireRole } = require('../middleware/auth');
 const { VOTER_SELECT, getTeamUserIds, voterAssignmentScope } = require('../helpers');
+const { transliterate, isRoman } = require('../utils/transliterate');
 
 // ── Devanagari ↔ Latin helpers ────────────────────────────────────────────────
 function isDevanagari(str) {
@@ -199,9 +200,25 @@ router.get('/search', authenticateToken, async (req, res, next) => {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json({ success: true, data: [] });
 
+    // Build LIKE clauses. For Roman input we also OR in Devanagari candidates
+    // so 'pratik' matches stored 'प्रतीक' on name/father_name.
     const s = `%${q}%`;
-    const where = ['(v.name LIKE ? OR v.voter_id LIKE ? OR v.phone LIKE ? OR v.father_name LIKE ?)'];
-    const params = [s, s, s, s];
+    const nameClauses = ['v.name LIKE ?', 'v.father_name LIKE ?'];
+    const nameVals = [s, s];
+    const otherClauses = ['v.voter_id LIKE ?', 'v.phone LIKE ?'];
+    const otherVals = [s, s];
+
+    if (isRoman(q)) {
+      const devCandidates = transliterate(q);
+      for (const c of devCandidates) {
+        const pat = `%${c}%`;
+        nameClauses.push('v.name LIKE ?', 'v.father_name LIKE ?');
+        nameVals.push(pat, pat);
+      }
+    }
+
+    const where = [`(${[...nameClauses, ...otherClauses].join(' OR ')})`];
+    const params = [...nameVals, ...otherVals];
 
     const teamIds = await getTeamUserIds(req.user);
     const scope   = voterAssignmentScope(teamIds);
