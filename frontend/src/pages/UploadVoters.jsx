@@ -1,11 +1,35 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, FileSpreadsheet, FileText, CheckCircle, Download, X } from 'lucide-react';
+import { Upload, FileSpreadsheet, FileText, CheckCircle, Download, X, Clock, AlertCircle, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import api from '../utils/api';
 import { getApiError } from '../utils/helpers';
 import ErrorAlert from '../components/ErrorAlert';
 
 const MULTIPART_HEADERS = { 'Content-Type': 'multipart/form-data' };
+
+const JOB_POLL_MS = 5000;
+const JOBS_LIST_POLL_MS = 10000;
+
+function statusBadge(status) {
+  const map = {
+    pending:   { bg: '#fff7ed', fg: '#9a3412', label: 'Pending' },
+    parsing:   { bg: '#eff6ff', fg: '#1d4ed8', label: 'Parsing' },
+    processed: { bg: '#ecfdf5', fg: '#047857', label: 'Processed' },
+    failed:    { bg: '#fef2f2', fg: '#b91c1c', label: 'Failed' },
+  };
+  const s = map[status] || { bg: 'var(--bg)', fg: 'var(--text-2)', label: status };
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
+      style={{ background: s.bg, color: s.fg }}>{s.label}</span>
+  );
+}
+
+function fmtTime(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleString();
+}
 
 export default function UploadVoters() {
   const [areas, setAreas]           = useState([]);
@@ -17,14 +41,19 @@ export default function UploadVoters() {
   const [result, setResult]         = useState(null);
   const [error, setError]           = useState('');
   const [dragging, setDragging]     = useState(false);
-  const [uploadMode, setUploadMode] = useState('excel'); // 'excel' or 'pdf'
-  const [pdfFile, setPdfFile]       = useState(null);
-  const [pdfUploading, setPdfUploading] = useState(false);
-  const [pdfResult, setPdfResult]   = useState(null);
-  const [pdfError, setPdfError]     = useState('');
+  const [uploadMode, setUploadMode] = useState('excel');
   const [partsData, setPartsData]   = useState([]);
   const [partName, setPartName]     = useState('');
   const [partNumber, setPartNumber] = useState('');
+
+  // PDF parse-jobs state
+  const [pdfFile, setPdfFile]           = useState(null);
+  const [pdfDragging, setPdfDragging]   = useState(false);
+  const [pdfQueueing, setPdfQueueing]   = useState(false);
+  const [pdfError, setPdfError]         = useState('');
+  const [activeJob, setActiveJob]       = useState(null); // currently watched job
+  const [recentJobs, setRecentJobs]     = useState([]);
+
   const fileRef = useRef();
   const pdfRef = useRef();
 
@@ -34,6 +63,39 @@ export default function UploadVoters() {
       setPartsData(p.data.data || []);
     });
   }, []);
+
+  // Poll the active job until it leaves pending/parsing
+  useEffect(() => {
+    if (!activeJob || !['pending', 'parsing'].includes(activeJob.status)) return;
+    const id = activeJob.job_id || activeJob.id;
+    if (!id) return;
+    const t = setInterval(async () => {
+      try {
+        const res = await api.get(`/voters/parse-jobs/${id}`);
+        const data = res.data.data;
+        setActiveJob(data);
+        if (!['pending', 'parsing'].includes(data.status)) clearInterval(t);
+      } catch {
+        /* ignore — keep polling */
+      }
+    }, JOB_POLL_MS);
+    return () => clearInterval(t);
+  }, [activeJob]);
+
+  // Refresh recent jobs while on PDF tab
+  useEffect(() => {
+    if (uploadMode !== 'pdf') return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await api.get('/voters/parse-jobs?limit=20');
+        if (!cancelled) setRecentJobs(res.data.data?.jobs || []);
+      } catch { /* ignore */ }
+    };
+    load();
+    const t = setInterval(load, JOBS_LIST_POLL_MS);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [uploadMode, activeJob?.status]);
 
   const selectedPartEntry = partsData.find(p => p.part_name === partName);
   const partNumbers = selectedPartEntry ? selectedPartEntry.part_numbers : [];
@@ -100,24 +162,51 @@ export default function UploadVoters() {
     }
   };
 
-  const handlePdfUpload = async () => {
+  // ── PDF parse-jobs handlers ─────────────────────────────────────────────
+  const onPdfPicked = (f) => {
+    if (!f) return;
+    if (!/\.pdf$/i.test(f.name)) {
+      setPdfError('Please pick a .pdf file');
+      return;
+    }
+    setPdfFile(f); setPdfError('');
+  };
+
+  const handlePdfDrop = (e) => {
+    e.preventDefault(); setPdfDragging(false);
+    onPdfPicked(e.dataTransfer.files[0]);
+  };
+
+  const clearPdfFile = (e) => {
+    e.stopPropagation();
+    setPdfFile(null);
+    if (pdfRef.current) pdfRef.current.value = '';
+  };
+
+  const queuePdf = async () => {
     if (!pdfFile) return;
-    setPdfUploading(true); setPdfError(''); setPdfResult(null);
-    const formData = new FormData();
-    formData.append('file', pdfFile);
-    if (areaId) formData.append('area_id', areaId);
+    setPdfQueueing(true); setPdfError('');
+    const fd = new FormData();
+    fd.append('file', pdfFile);
+    if (areaId) fd.append('area_id', areaId);
+    if (partNumber) fd.append('part_number', partNumber);
     try {
-      const res = await api.post('/voters/upload-pdf', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 10 * 60 * 1000, // 10 min for OCR processing
+      const res = await api.post('/voters/parse-jobs', fd, {
+        headers: MULTIPART_HEADERS,
+        timeout: 5 * 60 * 1000, // upload of 100MB PDF can be slow on flaky links
       });
-      setPdfResult(res.data.data);
+      setActiveJob(res.data.data);
       setPdfFile(null);
       if (pdfRef.current) pdfRef.current.value = '';
+      // Trigger an immediate jobs-list refresh
+      try {
+        const list = await api.get('/voters/parse-jobs?limit=20');
+        setRecentJobs(list.data.data?.jobs || []);
+      } catch { /* ignore */ }
     } catch (err) {
-      setPdfError(getApiError(err, 'PDF processing failed'));
+      setPdfError(getApiError(err, 'Failed to queue PDF'));
     } finally {
-      setPdfUploading(false);
+      setPdfQueueing(false);
     }
   };
 
@@ -132,6 +221,8 @@ export default function UploadVoters() {
     XLSX.utils.book_append_sheet(wb, ws, 'Voters');
     XLSX.writeFile(wb, 'voter_list_sample.xlsx');
   };
+
+  const activeIsRunning = activeJob && ['pending', 'parsing'].includes(activeJob.status);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -150,7 +241,7 @@ export default function UploadVoters() {
       {/* Upload Mode Tabs */}
       <div className="flex gap-2 anim-up">
         <button
-          onClick={() => { setUploadMode('excel'); setPdfError(''); setPdfResult(null); }}
+          onClick={() => { setUploadMode('excel'); setPdfError(''); }}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all ${
             uploadMode === 'excel' ? 'text-white' : ''
           }`}
@@ -178,40 +269,191 @@ export default function UploadVoters() {
       {/* PDF Upload Mode */}
       {uploadMode === 'pdf' && (
         <>
-          <div className="card p-6 anim-up anim-d1">
-            <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text)' }}>How to Upload PDF Voter Rolls</h3>
-            <div className="text-sm space-y-4" style={{ color: 'var(--text-2)' }}>
-              <p>Election Commission PDFs (10-12MB) are too large for direct cloud upload. Use the <strong>2-step process</strong>:</p>
-
-              <div className="rounded-lg p-4" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                <div className="font-bold mb-2" style={{ color: 'var(--text)' }}>Step 1: Extract voters locally (one-time per PDF)</div>
-                <code className="block text-xs p-3 rounded" style={{ background: '#1a1a2e', color: '#e0e0e0' }}>
-                  ./upload-voter-pdf.sh your-voter-roll.pdf 1
-                </code>
-                <p className="text-xs mt-2" style={{ color: 'var(--text-3)' }}>
-                  The number at the end is the Area/Ward ID. This extracts voter data using OCR and uploads the CSV automatically.
-                </p>
+          {/* Active job banner */}
+          {activeJob && (
+            <div className="card p-5 anim-scale" style={{
+              borderLeft: `3px solid ${
+                activeJob.status === 'processed' ? '#10b981' :
+                activeJob.status === 'failed'    ? '#ef4444' : 'var(--text)'
+              }`
+            }}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    {activeIsRunning ? <Loader2 size={18} className="animate-spin" style={{ color: 'var(--text)' }} /> :
+                      activeJob.status === 'processed' ? <CheckCircle size={18} style={{ color: '#10b981' }} /> :
+                      <AlertCircle size={18} style={{ color: '#ef4444' }} />}
+                    <h3 className="font-bold" style={{ color: 'var(--text)' }}>
+                      {activeIsRunning ? 'Processing your file' :
+                       activeJob.status === 'processed' ? 'Import complete' : 'Import failed'}
+                    </h3>
+                    {statusBadge(activeJob.status)}
+                  </div>
+                  <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+                    {activeJob.pdf_filename || 'PDF'} · job #{activeJob.job_id || activeJob.id}
+                  </p>
+                  {activeIsRunning && (
+                    <p className="text-xs mt-2" style={{ color: 'var(--text-3)' }}>
+                      You can leave this page — we'll keep parsing in the background. Refresh anytime to check status.
+                    </p>
+                  )}
+                  {activeJob.status === 'processed' && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                      {[
+                        { label: 'Cover Total',   value: activeJob.cover_total ?? '—' },
+                        { label: 'Extracted',     value: activeJob.total_extracted ?? '—' },
+                        { label: 'Inserted',      value: activeJob.total_inserted ?? '—' },
+                        { label: 'Skipped (dup)', value: activeJob.total_skipped ?? '—' },
+                      ].map(s => (
+                        <div key={s.label} className="rounded-lg p-3" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                          <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>{s.label}</div>
+                          <div className="text-2xl font-bold mt-1" style={{ color: 'var(--text)' }}>{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {activeJob.status === 'failed' && activeJob.error_message && (
+                    <pre className="mt-3 p-3 rounded text-xs whitespace-pre-wrap break-all"
+                      style={{ background: '#fef2f2', color: '#7f1d1d', maxHeight: 180, overflow: 'auto' }}>
+                      {activeJob.error_message}
+                    </pre>
+                  )}
+                </div>
+                <button onClick={() => setActiveJob(null)} className="opacity-50 hover:opacity-100" title="Dismiss">
+                  <X size={16} />
+                </button>
               </div>
-
-              <div className="rounded-lg p-4" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                <div className="font-bold mb-2" style={{ color: 'var(--text)' }}>Step 2: Or use the Excel/CSV tab</div>
-                <p>The script generates a CSV file. You can also manually upload it using the <strong>Excel/CSV</strong> tab above.</p>
-              </div>
-
-              <div className="rounded-lg p-4" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                <div className="font-bold mb-2" style={{ color: 'var(--text)' }}>Requirements (on your computer)</div>
-                <ul className="list-disc pl-5 space-y-1 text-xs">
-                  <li>Python 3 with pytesseract, pdf2image, numpy, Pillow</li>
-                  <li>Tesseract OCR with Hindi: <code>brew install tesseract tesseract-lang</code></li>
-                  <li>Poppler: <code>brew install poppler</code></li>
-                </ul>
-              </div>
-
-              <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-                The OCR extracts: voter name, father/husband name, age, gender, voter ID, and house number from Hindi voter roll PDFs.
-                Accuracy: ~99% for age/gender, ~82% for voter IDs.
-              </p>
             </div>
+          )}
+
+          {/* Village / Part picker */}
+          <div className="card p-5 anim-up anim-d1">
+            <h3 className="font-bold mb-3" style={{ color: 'var(--text)' }}>Assign Location</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Village / Part Name</label>
+                <select className="input" value={partName} onChange={e => handlePartNameChange(e.target.value)}>
+                  <option value="">— Select Village —</option>
+                  {partsData.map(p => (
+                    <option key={p.part_name} value={p.part_name}>
+                      {p.part_name} ({p.count} {p.count > 1 ? 'parts' : 'part'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {showPartNumberDropdown && (
+                <div>
+                  <label className="label">Part Number</label>
+                  <select className="input" value={partNumber} onChange={e => setPartNumber(e.target.value)}>
+                    <option value="">— Select Part No. —</option>
+                    {partNumbers.map(num => (
+                      <option key={num} value={String(num)}>Part {num}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+              Optional — helps tag the imported voters with their polling part.
+            </p>
+          </div>
+
+          {/* PDF dropzone */}
+          <div className="card p-5 anim-up anim-d2">
+            <div
+              onDrop={handlePdfDrop}
+              onDragOver={e => { e.preventDefault(); setPdfDragging(true); }}
+              onDragLeave={() => setPdfDragging(false)}
+              onClick={() => pdfRef.current?.click()}
+              className="border-2 border-dashed rounded-xl cursor-pointer transition-all py-12 px-6 text-center"
+              style={{
+                borderColor: pdfDragging ? 'var(--text)' : 'var(--border)',
+                background: pdfDragging ? 'var(--bg)' : 'transparent',
+              }}
+            >
+              <input ref={pdfRef} type="file" accept="application/pdf,.pdf" className="hidden"
+                onChange={e => onPdfPicked(e.target.files[0])} />
+              {pdfFile ? (
+                <div>
+                  <FileText size={36} className="mx-auto mb-3" style={{ color: 'var(--text-2)' }} />
+                  <p className="font-semibold" style={{ color: 'var(--text)' }}>{pdfFile.name}</p>
+                  <p className="text-sm mt-1" style={{ color: 'var(--text-3)' }}>
+                    {(pdfFile.size / 1024 / 1024).toFixed(1)} MB · Click to change
+                  </p>
+                  <button type="button" onClick={clearPdfFile}
+                    className="mt-3 inline-flex items-center gap-1 text-xs transition-opacity hover:opacity-60"
+                    style={{ color: 'var(--text-3)' }}>
+                    <X size={11} /> Remove file
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <Upload size={36} className="mx-auto mb-3 opacity-20" style={{ color: 'var(--text)' }} />
+                  <p className="font-semibold" style={{ color: 'var(--text-2)' }}>Drag & drop ECI voter-roll PDF</p>
+                  <p className="text-sm mt-1" style={{ color: 'var(--text-3)' }}>or click to browse · max 100 MB</p>
+                </div>
+              )}
+            </div>
+
+            <ErrorAlert message={pdfError} />
+
+            {pdfFile && (
+              <button onClick={queuePdf} disabled={pdfQueueing} className="btn-primary mt-4 w-full justify-center py-3">
+                {pdfQueueing
+                  ? <><Loader2 size={15} className="animate-spin" /> Uploading…</>
+                  : <><Upload size={15} /> Queue for parsing</>}
+              </button>
+            )}
+
+            <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+              Parsing runs in the background on our worker. A 30-page PDF takes about 3 minutes.
+              You'll see progress here, and the voters appear in your list as soon as the job completes.
+            </p>
+          </div>
+
+          {/* Recent jobs */}
+          <div className="card overflow-hidden anim-up anim-d3">
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+              <h3 className="font-bold" style={{ color: 'var(--text)' }}>Recent jobs</h3>
+            </div>
+            {recentJobs.length === 0 ? (
+              <div className="p-6 text-sm text-center" style={{ color: 'var(--text-3)' }}>
+                No PDF imports yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Job</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>File</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Status</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Inserted</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Cover</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentJobs.map(j => (
+                      <tr key={j.id}
+                        onClick={() => setActiveJob(j)}
+                        className="cursor-pointer transition-colors hover:bg-[#fafafa]"
+                        style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td className="px-3 py-2 font-mono" style={{ color: 'var(--text-2)' }}>#{j.id}</td>
+                        <td className="px-3 py-2 max-w-[260px] truncate" style={{ color: 'var(--text)' }}>{j.pdf_filename}</td>
+                        <td className="px-3 py-2">{statusBadge(j.status)}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: 'var(--text-2)' }}>{j.total_inserted ?? '—'}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: 'var(--text-3)' }}>{j.cover_total ?? '—'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap" style={{ color: 'var(--text-3)' }}>
+                          <Clock size={11} className="inline mr-1 opacity-50" />
+                          {fmtTime(j.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -84,6 +84,33 @@ const pdfUpload = multer({
   },
 });
 
+// In-memory upload for the async parse-jobs flow — we forward the bytes
+// straight to the Railway parser service, so writing them to /tmp first
+// just wastes the cold-start budget.
+const pdfMemoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    cb(null, file.mimetype === 'application/pdf' || path.extname(file.originalname).toLowerCase() === '.pdf');
+  },
+});
+
+function parserServiceConfig() {
+  const base = (process.env.PARSER_SERVICE_URL || '').replace(/\/+$/, '');
+  const token = process.env.PARSER_SERVICE_TOKEN;
+  if (!base || !token) {
+    const err = new Error('Parser service not configured (PARSER_SERVICE_URL / PARSER_SERVICE_TOKEN missing)');
+    err.status = 503;
+    throw err;
+  }
+  return { base, token };
+}
+
+async function readJsonOrText(resp) {
+  const text = await resp.text();
+  try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
 // GET /api/voters
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
@@ -533,6 +560,83 @@ router.post('/upload-pdf', authenticateToken, requireAdmin, pdfUpload.single('fi
   } catch (err) {
     fs.unlink(pdfPath, () => {});
     console.error('PDF upload error:', err);
+    next(err);
+  }
+});
+
+// ── Async PDF parsing via Railway parser-service ─────────────────────────
+// Vercel's 60s function limit can't handle a full PDF parse (~3min/PDF), so
+// we hand the file to a long-running Railway worker and let the UI poll.
+
+router.post('/parse-jobs', authenticateToken, requireAdmin, pdfMemoryUpload.single('file'), async (req, res, next) => {
+  if (!req.file) return res.status(400).json({ success: false, error: 'No PDF file uploaded' });
+
+  try {
+    const { base, token } = parserServiceConfig();
+    const fd = new FormData();
+    const blob = new Blob([req.file.buffer], { type: 'application/pdf' });
+    fd.append('pdf', blob, req.file.originalname);
+    fd.append('uploaded_by', String(req.user.id));
+    if (req.body.area_id) fd.append('area_id', String(parseInt(req.body.area_id, 10)));
+    if (req.body.part_number) fd.append('part_number', String(parseInt(req.body.part_number, 10)));
+
+    const resp = await fetch(`${base}/jobs`, {
+      method: 'POST',
+      headers: { 'X-Worker-Token': token },
+      body: fd,
+    });
+    const payload = await readJsonOrText(resp);
+    if (!resp.ok) {
+      return res.status(resp.status).json({ success: false, error: payload.detail || payload.raw || 'parser-service error' });
+    }
+
+    await db.run(
+      'INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)',
+      [req.user.id, 'QUEUE_PDF_PARSE', `Queued PDF ${req.file.originalname} as job ${payload.job_id}`]
+    );
+
+    res.json({ success: true, data: payload });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    console.error('parse-jobs upload error:', err);
+    next(err);
+  }
+});
+
+router.get('/parse-jobs', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const { base, token } = parserServiceConfig();
+    const url = new URL(`${base}/jobs`);
+    if (req.query.status) url.searchParams.set('status', req.query.status);
+    if (req.query.uploaded_by) url.searchParams.set('uploaded_by', req.query.uploaded_by);
+    if (req.query.limit) url.searchParams.set('limit', req.query.limit);
+
+    const resp = await fetch(url, { headers: { 'X-Worker-Token': token } });
+    const payload = await readJsonOrText(resp);
+    if (!resp.ok) {
+      return res.status(resp.status).json({ success: false, error: payload.detail || payload.raw });
+    }
+    res.json({ success: true, data: payload });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    next(err);
+  }
+});
+
+router.get('/parse-jobs/:id', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const { base, token } = parserServiceConfig();
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: 'invalid job id' });
+
+    const resp = await fetch(`${base}/jobs/${id}`, { headers: { 'X-Worker-Token': token } });
+    const payload = await readJsonOrText(resp);
+    if (!resp.ok) {
+      return res.status(resp.status).json({ success: false, error: payload.detail || payload.raw });
+    }
+    res.json({ success: true, data: payload });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     next(err);
   }
 });

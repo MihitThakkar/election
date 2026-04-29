@@ -82,6 +82,15 @@ def validate_epic(raw: str):
 
     issues = []
 
+    # Vision occasionally doubles the leading consonant (WWFX, FFHR). Real
+    # prefixes are exactly 3 letters, so collapse a leading repeated alpha
+    # if the rest then fits a known pattern.
+    if len(epic) == 11 and epic[:2].isalpha() and epic[0] == epic[1]:
+        collapsed = epic[1:]
+        for pat in EPIC_PATTERNS:
+            if pat.match(collapsed):
+                return collapsed, 0.95, ['dropped duplicate prefix letter']
+
     # 3-letter prefix + digits with OCR fix in digit area
     if len(epic) in (9, 10) and epic[:3].isalpha():
         prefix = epic[:3]
@@ -324,69 +333,66 @@ def _to_ascii_digits(s: str) -> str:
 def parse_page_footer_total(text: str):
     """Return the declared total record count on a page, or None.
 
-    Footer formats observed (the colon, the order, and OCR spacing all vary):
-      'इस पृष्ठ का कुल योग : 30'
-      'पुरुष : 14  महिला : 16  अन्य : 0  कुल : 30'
-      'पुरुष: 14 महिला: 16 कुल: 30'
-      'पुरुष  महिला  कुल   14   16   30'   (OCR sometimes splits headers/values)
-      'Total : 30'
+    Important: ECI draft-roll PDFs typically do NOT have per-page voter
+    totals. The bottom of every page reads 'कुल पृष्ठ X का पृष्ठ Y'
+    which is a "Page X of Y" indicator — explicitly rejected here.
 
-    OCR mangling we tolerate:
-      - Devanagari digits (०१२...)
-      - Missing/extra colons or dashes
-      - Newlines mid-pattern (re.DOTALL)
-      - Words like 'योग' broken or merged
+    The only place a vote total appears is the cover page table; that
+    is parsed separately by `extract_part_total`.
+
+    Returned value is reserved for the rare format that does include a
+    per-page sum (e.g., 'इस पृष्ठ का कुल योग : 27').
     """
     if not text:
         return None
-    # Normalise: convert Devanagari digits to ASCII so a single regex set works.
     t = _to_ascii_digits(text)
 
-    # Sum form: man+woman[+other] = total -> use total
-    m = re.search(
-        r'पुरुष[\s:：\-]*(\d{1,4})[\s\S]{0,60}?'
-        r'महिला[\s:：\-]*(\d{1,4})'
-        r'(?:[\s\S]{0,60}?(?:अन्य|थर्ड|other)[\s:：\-]*(\d{1,4}))?'
-        r'[\s\S]{0,60}?कुल[\s:：\-]*(\d{1,4})',
-        t, re.IGNORECASE)
-    if m:
-        try: return int(m.group(4))
-        except ValueError: pass
+    # Strip the "कुल पृष्ठ N का पृष्ठ M" page indicator so it can't pollute
+    # subsequent regex matches.
+    t = re.sub(r'कुल\s*पृष्ठ\s*\d+\s*का\s*पृष्ठ\s*\d+', '', t)
 
-    # Header-then-values form (4 cols): "पुरुष महिला अन्य कुल\n14 16 0 30"
+    # Explicit per-page form only: "इस पृष्ठ का कुल योग ..."
     m = re.search(
-        r'पुरुष[\s\S]{0,40}?महिला[\s\S]{0,40}?(?:अन्य|थर्ड|other)[\s\S]{0,40}?'
-        r'कुल[\s\S]{0,80}?'
-        r'(\d{1,4})\D{1,15}(\d{1,4})\D{1,15}(\d{1,4})\D{1,15}(\d{1,4})',
-        t, re.IGNORECASE)
-    if m:
-        try: return int(m.group(4))
-        except ValueError: pass
-
-    # Header-then-values form (3 cols): "पुरुष महिला कुल\n14 16 30"
-    m = re.search(
-        r'पुरुष[\s\S]{0,40}?महिला[\s\S]{0,40}?कुल[\s\S]{0,80}?'
-        r'(\d{1,4})\D{1,15}(\d{1,4})\D{1,15}(\d{1,4})',
-        t)
-    if m:
-        try: return int(m.group(3))
-        except ValueError: pass
-
-    # "इस पृष्ठ का कुल योग ..." with very loose separators
-    m = re.search(
-        r'(?:इस[\s\S]{0,15}?पृष्ठ[\s\S]{0,15}?का[\s\S]{0,15}?)?'
-        r'कुल[\s\S]{0,15}?(?:योग)?[\s:：\-]*(\d{1,4})',
+        r'इस\s*पृष्ठ\s*का\s*कुल(?:\s*योग)?\s*[:：\-]+\s*(\d{1,4})',
         t)
     if m:
         try: return int(m.group(1))
         except ValueError: pass
 
     # English fallback
-    m = re.search(r'Total\s*(?:Electors)?\s*[:：]?\s*(\d{1,4})', t, re.IGNORECASE)
+    m = re.search(r'Page\s*Total\s*[:：]?\s*(\d{1,4})', t, re.IGNORECASE)
     if m:
         try: return int(m.group(1))
         except ValueError: pass
 
+    return None
+
+
+def extract_part_total(text: str):
+    """Parse cover page total: returns dict {male, female, other, total}
+    from the part-summary table, or None if not found.
+
+    Cover table layout:
+        पुरुष महिला तृतीय लिंग कुल
+        360   366   0          726
+    """
+    if not text:
+        return None
+    t = _to_ascii_digits(text)
+    # Look for the header line with all four labels close together
+    m = re.search(
+        r'पुरुष[\s\S]{0,60}?महिला[\s\S]{0,60}?(?:तृतीय|अन्य|थर्ड|other)'
+        r'[\s\S]{0,30}?(?:लिंग)?[\s\S]{0,60}?कुल[\s\S]{0,200}?'
+        r'(\d{1,5})\D{1,30}(\d{1,5})\D{1,30}(\d{1,5})\D{1,30}(\d{1,5})',
+        t, re.IGNORECASE)
+    if m:
+        try:
+            male, female, other, total = (int(m.group(i)) for i in range(1, 5))
+            # Sanity check: male+female+other should == total (allow tiny OCR drift)
+            if abs((male + female + other) - total) <= 1:
+                return {'male': male, 'female': female, 'other': other, 'total': total}
+        except ValueError:
+            pass
     return None
 
 
@@ -421,9 +427,21 @@ def cluster_cards(words, page_w, page_h):
     if not words:
         return []
 
-    # Constrain to the body region (skip top header band & bottom footer band)
-    top_cut = page_h * 0.18    # below header
-    bot_cut = page_h * 0.93    # above footer
+    # Dynamic top boundary: anchor to the first 'निर्वाचक' (voter) marker on
+    # the page. A fixed top_cut (e.g., page_h * 0.18) is unsafe because some
+    # pages have shorter sub-section headers, so a static cutoff drops the
+    # entire first row of voter cards. If no marker exists this page is a
+    # cover/summary and produces no cards.
+    nirvachak = sorted([w for w in words if 'निर्वाचक' in w['text']],
+                       key=lambda w: w['cy'])
+    if not nirvachak:
+        return []
+
+    median_h = float(np.median([w['h'] for w in words])) if words else 12.0
+    # Start a little above the first marker so its preceding "Sr. No"
+    # numeral (which sits just above the card) is included.
+    top_cut = max(0.0, nirvachak[0]['cy'] - max(median_h * 4, 80))
+    bot_cut = page_h * 0.95    # above footer
     body = [w for w in words if top_cut <= w['cy'] <= bot_cut]
     if not body:
         return []
@@ -487,8 +505,31 @@ def cluster_cards(words, page_w, page_h):
                 'words': g,
             })
 
-    # Order cards top-down within each column, then column-wise (left → right).
-    cards.sort(key=lambda c: (c['col'], c['bbox'][1]))
+    # Order cards in PDF reading order: row-major (left → right per row,
+    # then top → bottom). ECI prints sr_no horizontally — sr=222 is the
+    # right-side card of row N, sr=224 is the left card of row N+1 — so a
+    # column-major sort would emit them out of order.
+    #
+    # Gap-based row clustering (not rigid bucketing) so cards in the same
+    # physical row don't get split by a bucket-edge boundary when their y1
+    # values differ by a few pixels.
+    if cards:
+        heights = [c['bbox'][3] - c['bbox'][1] for c in cards]
+        row_pitch = float(np.median(heights)) if heights else 200.0
+        gap_threshold = max(row_pitch * 0.5, 50.0)
+        sorted_by_y = sorted(cards, key=lambda c: c['bbox'][1])
+        row_idx = 0
+        prev_y = None
+        for c in sorted_by_y:
+            y = c['bbox'][1]
+            if prev_y is not None and (y - prev_y) > gap_threshold:
+                row_idx += 1
+            c['_row_idx'] = row_idx
+            prev_y = y
+        cards.sort(key=lambda c: (c['_row_idx'], c['col']))
+        for c in cards:
+            del c['_row_idx']
+
     # Build text per card: words sorted by (y-line, x).
     for c in cards:
         c['text'] = _words_to_text(c['words'])
@@ -533,13 +574,27 @@ def parse_card(text: str) -> dict:
     if not text or len(text.strip()) < 5:
         return None
 
+    # Strip section/sub-section header lines that sometimes get clustered
+    # into the first card of a new section. These lines contain the literal
+    # "अनुभाग" (sub-section) and end with the section number+name; if left
+    # in place they confuse the नाम regex (which would match "...संख्या व नाम :").
+    text = '\n'.join(
+        ln for ln in text.splitlines()
+        if 'अनुभाग' not in ln
+    )
+
     voter = {}
 
     # ── EPIC ─────────────────────────────────────────────────────────────
+    # Two formats: contiguous (WFX1354349) and slash-separated (RJ/18/138/429580).
+    # The slash format often comes back from Vision as separate word tokens
+    # ("RJ", "/", "18", "/", "138", "/", "429580"), so we accept optional
+    # whitespace around each '/' and rejoin on capture.
     candidates = []
     candidates += re.findall(r'[A-Z]{2,4}[O0-9]{5,8}', text)
-    candidates += re.findall(r'[A-Z]{2}/\d{2}/\d{2,3}/\d{4,8}', text)
-    candidates += re.findall(r'(?:FJ|FU|RJ)/\d{2}/\d{2,3}/\d{4,8}', text)
+    slash_pat = r'[A-Z]{2}\s*/\s*\d{2}\s*/\s*\d{2,3}\s*/\s*\d{4,8}'
+    for raw in re.findall(slash_pat, text):
+        candidates.append(re.sub(r'\s+', '', raw))
 
     best_epic, best_conf, best_issues = None, 0.0, []
     for raw in candidates:
@@ -551,29 +606,53 @@ def parse_card(text: str) -> dict:
         voter['epic_confidence'] = best_conf
         voter['epic_issues'] = best_issues
 
-    # ── Sr. No (top of card, standalone integer) ─────────────────────────
-    sr_match = re.search(r'^\s*(\d{1,4})\s*$', text, re.MULTILINE)
+    # ── Sr. No (top of card; either standalone or "<sr> <EPIC>") ─────────
+    # Cards begin with the printed serial number. ECI rolls sometimes put
+    # it on its own line, but Vision often returns it on the same line as
+    # the EPIC ("224 WFX1623016"), so we anchor at the start of the card.
+    sr_match = re.match(r'^\s*(\d{1,4})\b', text)
     if sr_match:
         sr = int(sr_match.group(1))
         if 1 <= sr <= 9999:
             voter['sr_no'] = sr
 
     # ── Name ─────────────────────────────────────────────────────────────
+    # Require "निर्वाचक" prefix so we never match a stray "नाम :" in a
+    # section header (e.g. "अनुभाग की संख्या व नाम :"). The colon is
+    # optional — Vision sometimes drops it ("निर्वाचक का नाम मनोहर लाल" with
+    # no `:`). Stop tokens (पिता/पति/माता/अन्य + newline) bound the name
+    # so the regex doesn't run into the relation line.
     nm = re.search(
-        r'(?:निर्वाचक\s*का\s*)?नाम\s*[:：]\s*:?\s*(.+?)(?:\n|पिता|पति|$)',
+        r'निर्वाचक\s*का\s*नाम\s*[:：]?\s*:?\s*(.+?)(?:\n|पिता|पति|माता|अन्य|$)',
         text, re.MULTILINE)
+    if not nm and 'निर्वाचक' not in text:
+        nm = re.search(
+            r'नाम\s*[:：]\s*:?\s*(.+?)(?:\n|पिता|पति|माता|अन्य|$)',
+            text, re.MULTILINE)
     if nm:
         nm_val = re.sub(r'[\s:：]+$', '', nm.group(1).strip())
         if nm_val and len(nm_val) >= 2:
             voter['name'] = nm_val
 
-    # ── Father / Husband ─────────────────────────────────────────────────
+    # ── Father / Husband / Mother / Other ────────────────────────────────
+    # ECI rolls use पिता (father), पति (husband), माता (mother), or अन्य
+    # (other — used for guardians/relatives outside the standard three).
+    # "अन्य" appears with several glyph variants: "अन्य :", "अन्य:", or
+    # "अन्यः" (Devanagari visarga ः replacing the colon).
     fa = re.search(
-        r'(पिता|पति)\s*का\s*नाम\s*[:：]?\s*(.+?)(?:\n|गृह|उम्र|लिंग|फोटो|$)',
+        r'(पिता|पति|माता|अन्य)\s*ः?\s*(?:का\s*नाम)?\s*[:：]?\s*(.+?)'
+        r'(?:\n|गृह|उम्र|लिंग|फोटो|$)',
         text, re.MULTILINE)
     if fa:
-        voter['relation_type'] = 'father' if 'पिता' in fa.group(1) else 'husband'
-        fa_val = re.sub(r'[\s:：]+$', '', fa.group(2).strip())
+        rel_word = fa.group(1)
+        voter['relation_type'] = {
+            'पिता': 'father',
+            'पति':  'husband',
+            'माता': 'mother',
+            'अन्य': 'other',
+        }[rel_word]
+        fa_val = re.sub(r'[\s:：ः]+$', '', fa.group(2).strip())
+        fa_val = re.sub(r'^[\s:：ः]+', '', fa_val)
         if fa_val and len(fa_val) >= 2:
             voter['father_name'] = fa_val
 
@@ -597,9 +676,10 @@ def parse_card(text: str) -> dict:
     elif re.search(r'पुरुष|MALE', text, re.IGNORECASE):
         voter['gender'] = 'M'
 
-    # Acceptance: at least one anchor field present.
-    anchors = ('voter_id', 'name', 'father_name', 'age', 'gender')
-    if not any(voter.get(a) for a in anchors):
+    # Acceptance: every real voter card has age (उम्र 18-120) OR an EPIC.
+    # Cards with only a name fragment / only gender are cover-page or tail
+    # artifacts (constituency labels, section headers) — drop them.
+    if not (voter.get('age') or voter.get('voter_id')):
         return None
 
     # Defaults
@@ -705,6 +785,7 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
 
     # ── Document-level metadata: scan all pages but extract once ────────
     doc_meta = {'qualifying_date': None, 'publication_date': None, 'total_pages': None}
+    part_total = None  # cover-page voter total: {male, female, other, total}
 
     # Pages we ultimately keep voters from + per-page stats
     all_voters = []
@@ -738,6 +819,12 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
         for k, v in extract_doc_meta(result['full_text']).items():
             if v and not doc_meta.get(k):
                 doc_meta[k] = v
+
+        # Capture part total from cover page (first page that has it wins)
+        if part_total is None:
+            pt = extract_part_total(result['full_text'])
+            if pt:
+                part_total = pt
 
         if result['skipped_reason']:
             if verbose:
@@ -829,6 +916,7 @@ def process_pdf(pdf_path: str, ocr: VisionOCR, dpi: int = 300,
         'voters': all_voters,
         'page_stats': page_stats,
         'doc_meta': doc_meta,
+        'part_total': part_total,
         'file_meta': file_meta,
         'pdf_pages': total_pages_pdf,
         'pdf_name': pdf_name,
@@ -850,28 +938,43 @@ def write_verify(out_csv: Path, run: dict):
     lines.append(f"Publication date : {dm.get('publication_date') or '—'}")
     lines.append(f"Declared total pages: {dm.get('total_pages') or '—'}")
     lines.append(f"Actual PDF pages    : {run['pdf_pages']}")
+
+    pt = run.get('part_total')
+    if pt:
+        lines.append('')
+        lines.append("Cover-page total table:")
+        lines.append(f"  पुरुष (M)        : {pt['male']}")
+        lines.append(f"  महिला (F)        : {pt['female']}")
+        lines.append(f"  तृतीय लिंग (O)   : {pt['other']}")
+        lines.append(f"  कुल (TOTAL)      : {pt['total']}")
+    else:
+        lines.append('')
+        lines.append("Cover-page total : NOT FOUND  (cannot verify accuracy)")
+
     lines.append('')
     lines.append(f"{'PAGE':>4}  {'EXPECTED':>8}  {'EXTRACTED':>9}  {'STATUS':<10}  DETAIL")
     lines.append('-' * 64)
 
-    sum_expected = 0
     sum_extracted = 0
     flagged = 0
     for s in run['page_stats']:
         exp = s['expected'] if s['expected'] is not None else '—'
-        if isinstance(exp, int):
-            sum_expected += exp
         sum_extracted += s['extracted']
         if s['status'] not in ('OK', 'NO_FOOTER', 'SKIPPED'):
             flagged += 1
         lines.append(f"{s['page_no']:>4}  {str(exp):>8}  {s['extracted']:>9}  "
                      f"{s['status']:<10}  {s['detail']}")
     lines.append('-' * 64)
-    lines.append(f"TOTAL EXPECTED  : {sum_expected}")
+
+    expected_total = pt['total'] if pt else None
     lines.append(f"TOTAL EXTRACTED : {sum_extracted}")
-    diff = sum_expected - sum_extracted
-    pct = (diff / sum_expected * 100) if sum_expected else 0.0
-    lines.append(f"DIFF (expected - extracted): {diff} ({pct:+.2f}%)")
+    if expected_total is not None:
+        lines.append(f"COVER TOTAL     : {expected_total}")
+        diff = expected_total - sum_extracted
+        pct = (diff / expected_total * 100) if expected_total else 0.0
+        lines.append(f"DIFF (cover - extracted): {diff} ({pct:+.2f}%)")
+        if diff != 0:
+            lines.append(f"⚠ {abs(diff)} voters {'missing' if diff > 0 else 'extra'} — investigate page extraction")
     lines.append(f"FLAGGED PAGES   : {flagged}")
     verify_path.write_text('\n'.join(lines), encoding='utf-8')
     return verify_path

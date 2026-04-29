@@ -220,6 +220,31 @@ async function initDatabase() {
   await safeAlter('CREATE INDEX idx_voters_part_no ON voters(part_no)');
   await safeAlter('CREATE INDEX idx_voters_voter_id ON voters(voter_id)');
 
+  await p.execute(`
+    CREATE TABLE IF NOT EXISTS parse_jobs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      pdf_filename VARCHAR(500) NOT NULL,
+      pdf_size_bytes BIGINT,
+      uploaded_by INT,
+      area_id INT,
+      part_number INT,
+      status ENUM('pending', 'parsing', 'processed', 'failed') NOT NULL DEFAULT 'pending',
+      cover_total INT,
+      total_extracted INT,
+      total_inserted INT,
+      total_skipped INT,
+      error_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      started_at DATETIME,
+      completed_at DATETIME,
+      FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE SET NULL
+    )
+  `);
+  await safeIndex('CREATE INDEX idx_parse_jobs_status ON parse_jobs(status)');
+  await safeIndex('CREATE INDEX idx_parse_jobs_uploaded_by ON parse_jobs(uploaded_by)');
+  await safeAlter('ALTER TABLE parse_jobs ADD COLUMN pdf_path VARCHAR(500)');
+
   console.log('Database tables initialized');
 }
 
